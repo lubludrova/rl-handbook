@@ -85,6 +85,8 @@ Contributions are welcome. Good first contributions include fixing typos, improv
 
 Most handbook content lives in `content/docs/` as `.mdx` files. Open a pull request with a focused change and include context for any conceptual or algorithmic edits.
 
+If you spot an error but aren't sure how to fix it, opening an issue is just as helpful.
+
 ## License
 
 This project is open source under the [MIT License](LICENSE).
