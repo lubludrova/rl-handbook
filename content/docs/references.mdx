@@ -1,0 +1,105 @@
+---
+title: References
+description: Books, papers, courses, notes, and code resources used while writing the handbook.
+---
+
+This page collects the materials used to write and check the handbook chapters. There are some great resources which can help you to be better at RL.
+
+## Books
+
+- **Sutton & Barto (2018).** [Richard S. Sutton and Andrew G. Barto, *Reinforcement Learning: An Introduction*, 2nd ed., MIT Press.](https://mitpress.mit.edu/9780262039246/reinforcement-learning/)  
+  The foundational RL textbook and the main reference behind this handbook's notation, examples, and treatment of core basic algorithms.
+
+## Courses, Notes, and Code
+
+- **VachanVY.** [Reinforcement-Learning](https://github.com/VachanVY/Reinforcement-Learning#policy-iteration)  
+  A very strong implementation resource with good coverage of the basic algorithms: policy iteration, value iteration, Monte Carlo, SARSA, Q-learning, PPO, DDPG, and SAC. Great for checking the mechanics in small executable code.
+
+- **Yandex Data School.** [Practical RL](https://github.com/yandexdataschool/Practical_RL)  
+  An open RL course with lectures, seminar notebooks, homework-style material, and Colab-friendly practical exercises across classical and deep RL.
+
+- **Tim Miller.** [Mastering Reinforcement Learning: Markov Decision Processes](https://gibberblot.github.io/rl-notes/single-agent/MDPs.html)  
+  Clear online notes on MDPs, policies, Bellman equations, policy extraction, and partially observable MDPs, useful as a second explanation for the foundations.
+
+- **Boyu AI.** [Hands-on Reinforcement Learning](https://hrl.boyuai.com/)  
+  A practical course-style resource with chapter text, slides, videos, and runnable notebook links, moving from tabular RL to deep RL and selected advanced topics.
+
+- **OpenAI Spinning Up.** [Spinning Up in Deep RL](https://spinningup.openai.com/en/latest/)  
+  A compact deep RL reference with introductions, key papers, pseudocode, and implementation notes for policy gradients, TRPO, PPO, DDPG, TD3, and SAC.
+
+- **AdithyaSK.** [The ultimate guide to RL environments: building and scaling them in the LLM era](https://huggingface.co/spaces/AdithyaSK/rl-environments-guide#introduction)
+  Great resource for understanding RL environments: how to design them, scale them, evaluate them, and think about them in modern LLM-oriented RL setups.
+
+## Papers
+
+- **Thompson (1933).** [*On the Likelihood that One Unknown Probability Exceeds Another in View of the Evidence of Two Samples*.](https://doi.org/10.1093/biomet/25.3-4.285)  
+  Introduces Thompson sampling: sample from a posterior over arm values, then act greedily under that sample. Used in the Multi-Armed Bandits chapter.
+
+- **Sutton (1988).** [*Learning to Predict by the Methods of Temporal Differences*.](https://doi.org/10.1007/BF00115009)  
+  Introduces temporal-difference learning: update predictions from sampled transitions while bootstrapping from current estimates. Used in the Monte Carlo and Temporal-Difference Prediction chapter.
+
+- **Watkins and Dayan (1992).** [*Q-learning*.](https://doi.org/10.1007/BF00992698)  
+  Introduces Q-learning: off-policy TD control with a greedy next-state bootstrap target. Used in the Sarsa and Q-Learning chapter.
+
+- **Auer et al. (2002).** [*Finite-time Analysis of the Multiarmed Bandit Problem*.](https://doi.org/10.1023/A:1013689704352)  
+  Introduces UCB1: optimism under uncertainty with a shrinking confidence bonus for under-tested arms. Used in the Multi-Armed Bandits chapter.
+
+- **Lin (1992).** [*Self-Improving Reactive Agents Based on Reinforcement Learning, Planning and Teaching*.](https://doi.org/10.1007/BF00992699)  
+  Introduces experience replay: store past transitions and train from reused samples. Used in the Deep Q-Networks chapter.
+
+- **Mnih et al. (2013).** [*Playing Atari with Deep Reinforcement Learning*.](https://arxiv.org/abs/1312.5602)  
+  Introduces DQN: deep Q-learning from Atari pixels with a CNN and replay buffer. Used in the Deep Q-Networks chapter.
+
+- **Mnih et al. (2015).** [*Human-level control through deep reinforcement learning*.](https://doi.org/10.1038/nature14236)  
+  Introduces the canonical DQN recipe: replay, target networks, and broad Atari evaluation. Used in the Deep Q-Networks chapter.
+
+- **van Hasselt et al. (2016).** [*Deep Reinforcement Learning with Double Q-learning*.](https://arxiv.org/abs/1509.06461)  
+  Introduces Double DQN: separate action selection from action evaluation to reduce max bias. Used in the DQN Improvements chapter.
+
+- **Wang et al. (2016).** [*Dueling Network Architectures for Deep Reinforcement Learning*.](https://arxiv.org/abs/1511.06581)  
+  Introduces Dueling DQN: split a Q-network into value and advantage streams. Used in the DQN Improvements chapter.
+
+- **Schaul et al. (2016).** [*Prioritized Experience Replay*.](https://arxiv.org/abs/1511.05952)  
+  Introduces prioritized experience replay: sample high-error transitions more often and correct bias with importance weights. Used in the DQN Improvements chapter.
+
+- **Bellemare et al. (2017).** [*A Distributional Perspective on Reinforcement Learning*.](https://arxiv.org/abs/1707.06887)  
+  Introduces C51: learn a categorical distribution over returns instead of only expected return. Used in the DQN Improvements chapter.
+
+- **Fortunato et al. (2017).** [*Noisy Networks for Exploration*.](https://arxiv.org/abs/1706.10295)  
+  Introduces Noisy Nets: learned parameter noise for exploration inside deep RL networks. Used in the DQN Improvements chapter.
+
+- **Hessel et al. (2018).** [*Rainbow: Combining Improvements in Deep Reinforcement Learning*.](https://arxiv.org/abs/1710.02298) 
+  Introduces Rainbow: one DQN agent combining Double DQN, PER, dueling networks, multi-step targets, C51, and Noisy Nets. Used in the DQN Improvements chapter.
+
+- **Williams (1992).** [*Simple Statistical Gradient-Following Algorithms for Connectionist Reinforcement Learning*.](https://doi.org/10.1007/BF00992696)  
+  Introduces REINFORCE: a Monte Carlo likelihood-ratio estimator for direct policy optimization. Used in the Policy Gradient and REINFORCE chapter.
+
+- **Sutton et al. (1999).** [*Policy Gradient Methods for Reinforcement Learning with Function Approximation*.](https://papers.nips.cc/paper/1713-policy-gradient-methods-for-reinforcement-learning-with-function-approximation)  
+  Introduces the policy gradient theorem: the foundation for gradient-based policy optimization with function approximation. Used in the Policy Gradient and REINFORCE chapter.
+
+- **Schulman et al. (2015).** [*Trust Region Policy Optimization*.](https://arxiv.org/abs/1502.05477)  
+  Introduces TRPO: optimize a local policy surrogate while constraining policy change by KL divergence. Used in the TRPO chapter.
+
+- **Schulman et al. (2016).** [*High-Dimensional Continuous Control Using Generalized Advantage Estimation*.](https://arxiv.org/abs/1506.02438)  
+  Introduces GAE: an exponentially weighted advantage estimator that trades bias for variance. Used in the TRPO and PPO chapters.
+
+- **Mnih et al. (2016).** [*Asynchronous Methods for Deep Reinforcement Learning*.](https://arxiv.org/abs/1602.01783)  
+  Introduces A3C: asynchronous actor-critic training with many parallel environment workers. Used in the Actor-Critic, A2C and A3C chapter.
+
+- **Schulman et al. (2017).** [*Proximal Policy Optimization Algorithms*.](https://arxiv.org/abs/1707.06347)  
+  Introduces PPO: a clipped first-order policy update that approximates TRPO's local-update idea. Used in the PPO chapter.
+
+- **Silver et al. (2014).** [*Deterministic Policy Gradient Algorithms*.](https://proceedings.mlr.press/v32/silver14.html)  
+  Introduces deterministic policy gradients: train a continuous actor through a differentiable Q-critic. Used in the DDPG chapter.
+
+- **Lillicrap et al. (2016).** [*Continuous control with deep reinforcement learning*.](https://arxiv.org/abs/1509.02971)  
+  Introduces DDPG: deterministic actor, Q-critic, replay buffer, and target networks for continuous actions. Used in the DDPG chapter.
+
+- **Fujimoto et al. (2018).** [*Addressing Function Approximation Error in Actor-Critic Methods*.](https://arxiv.org/abs/1802.09477)  
+  Introduces TD3: clipped twin critics, delayed actor updates, and target policy smoothing for a stabler DDPG template. Used in the TD3 and SAC chapter.
+
+- **Haarnoja et al. (2018).** [*Soft Actor-Critic: Off-Policy Maximum Entropy Deep Reinforcement Learning with a Stochastic Actor*.](https://arxiv.org/abs/1801.01290)  
+  Introduces SAC: off-policy stochastic actor-critic under a maximum-entropy objective. Used in the TD3 and SAC chapter.
+
+- **Haarnoja et al. (2018).** [*Soft Actor-Critic Algorithms and Applications*.](https://arxiv.org/abs/1812.05905)  
+  Introduces the modern SAC variant: automatic entropy-temperature tuning and the twin-Q implementation used in practice. Used in the TD3 and SAC chapter.

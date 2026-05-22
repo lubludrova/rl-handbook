@@ -1,0 +1,207 @@
+---
+title: Dynamic Programming
+description: "Plan with known MDP dynamics using policy evaluation, policy improvement, policy iteration, and value iteration."
+---
+
+> **Abstract.** The previous chapter ended with Bellman equations. Dynamic programming is the first way to turn those equations into algorithms. When the finite MDP model is known, we can plan by sweeping through states, updating each value from the model's one-step predictions, and greedily improving the policy. This chapter builds the evaluation–improvement loop behind policy iteration, then shows how value iteration merges the same two ideas into a single update.
+
+Dynamic programming (DP) is a collection of algorithms for computing good or optimal policies when the environment is already given as a finite Markov decision process. The assumption is deliberately strong: the state, action, and reward sets are finite, and the agent knows the full one-step dynamics $p(s', r \mid s, a)$. In this setting the problem is not to learn the environment from experience, but to use the known model to plan. Classical DP is therefore limited as a practical reinforcement-learning method: real environments are often unknown, large, or continuous. But it is still the cleanest place to see the computational structure that later algorithms approximate.
+
+The key idea of DP, and of much of reinforcement learning, is to use value functions to organize the search for good policies. In the previous chapter we defined $v_\pi$, $q_\pi$, and the optimal value functions $v_*$ and $q_*$, then wrote the Bellman optimality equations they must satisfy:
+
+$$
+v_*(s) = \max_a \sum_{s', r} p(s', r \mid s, a) \left[r + \gamma v_*(s')\right]
+$$
+
+$$
+q_*(s,a) = \sum_{s', r} p(s', r \mid s, a) \left[r + \gamma \max_{a'} q_*(s',a')\right]
+$$
+
+DP starts from these equations. Once $v_*$ or $q_*$ is known, extracting an optimal policy is straightforward: choose actions that are greedy with respect to the optimal values. The remaining question is how to compute those values. DP answers by turning Bellman equations into update rules that improve approximations of the desired value functions.
+
+## Experiment: Cliff Walking
+
+We will use **Cliff Walking** (Sutton and Barto, Example 6.6) as the concrete MDP. The grid is $4 \times 12$. The start state is the bottom-left cell, the goal is the bottom-right cell, and the cells between them on the bottom row are the cliff.
+
+<img
+  src="/docs-assets/01-value-based/dynamic-programming/cliff-walking-gridworld.gif"
+  alt="Cliff Walking environment: the agent starts at the bottom-left, the goal is at the bottom-right, and the cliff lies between them."
+  style={{ maxWidth: '70%', margin: '2rem auto', display: 'block' }}
+/>
+
+Each move normally gives reward $-1$. Stepping into the cliff gives reward $-100$ and sends the agent back to the start. Reaching the goal ends the episode. The transition model is deterministic: if the agent moves right from a non-edge cell, the next state is known exactly.
+
+In the runnable example, falling into the cliff is represented as a transition with reward $-100$ whose next state is the start cell. The cliff cells still exist in the table so the grid can be printed, but planned trajectories never continue from them: the penalty transition has already redirected the agent back to the start.
+
+This example makes the planning problem visible. A greedy-looking shortest path along the bottom row is dangerous because one wrong step falls into the cliff. The optimal policy for the known MDP moves around the cliff and reaches the goal safely.
+
+## Policy Evaluation
+
+We first consider how to compute the state-value function $v_\pi$ for an arbitrary fixed policy $\pi$. In the dynamic-programming literature this is called **policy evaluation**. It is also called the **prediction problem**, because the policy is not being improved yet: we are only predicting the return we should expect if the agent follows $\pi$ from each state.
+
+From the MDP chapter, the Bellman expectation equation is:
+
+$$
+v_\pi(s) = \sum_a \pi(a \mid s) \sum_{s', r} p(s', r \mid s, a) \left[r + \gamma v_\pi(s')\right]
+$$
+
+This equation defines $v_\pi$ implicitly. The unknown value appears on both sides: the value of state $s$ depends on the values of successor states $s'$, whose values are also unknown. For a finite MDP, this is a system of simultaneous equations, one equation for each state. In principle we could solve that system directly, but dynamic programming uses an iterative approach that is closer to the algorithms we will reuse later.
+
+**Iterative policy evaluation** starts from an arbitrary approximate value function, say $v_0$. The initial numbers do not need to be good; terminal states, if present, are kept at value $0$ because no future reward remains after termination. Each new approximation $v_{k+1}$ is produced from the previous approximation $v_k$ by using the Bellman expectation equation as an update rule: replace the current estimate of a state by the expected one-step reward plus the discounted estimated value of what comes next.
+
+$$
+v_{k+1}(s) = \sum_a \pi(a \mid s) \sum_{s', r} p(s', r \mid s, a) \left[r + \gamma v_k(s')\right]
+$$
+The target of this process is a value function that no longer changes under the update. If our current approximation already matched the true $v_\pi$, applying the Bellman expectation update would return the same values again. In that sense, $v_\pi$ is the **fixed point** of the update. Before we reach it, each iteration makes the estimates more consistent with the policy and the model.
+
+One full pass over all states is called a **sweep**. During a sweep, each state's old value is replaced by a new value computed from the model's one-step outcomes. The update also **bootstraps**. The term means that an estimate is updated using other estimates. Here, the value of the current state $s$ is updated using the current values $v_k(s')$ of possible next states $s'$, rather than waiting for a complete episode return $G_t$. Because each state can pass information back to states that lead into it, value information propagates through the state space over repeated sweeps.
+## Policy Improvement
+
+Evaluation tells us how good a policy is. Improvement asks how to make it better. The reason we computed $v_\pi$ was not only to describe the current policy, but to test possible changes to it.
+
+Suppose $v_\pi$ is known for the current policy $\pi$. In state $s$, the policy may currently choose one action, or a distribution over actions. To ask whether another action $a$ is better, we evaluate a one-step deviation: take $a$ once in $s$, then return to following $\pi$ afterward. The value of that choice is the action-value under the old policy:
+
+$$
+q_\pi(s,a) = \sum_{s', r} p(s', r \mid s, a) \left[r + \gamma v_\pi(s')\right]
+$$
+
+Compare this number with $v_\pi(s)$. If $q_\pi(s,a) > v_\pi(s)$, then taking $a$ once and following $\pi$ afterward is better than following $\pi$ immediately from $s$. This one-step comparison is the local test used for policy improvement.
+
+A simple way to construct such a policy is to be greedy with respect to $q_\pi$:
+
+$$
+\pi'(s) = \arg\max_a q_\pi(s,a)
+$$
+
+The greedy policy chooses the action whose immediate reward plus discounted continuation value is largest, where the continuation value is still measured using $v_\pi$. By construction, this choice satisfies
+
+$$
+q_\pi(s, \pi'(s)) = \max_a q_\pi(s,a) \geq v_\pi(s),
+$$
+
+because $v_\pi(s)$ is the old policy's average over the same action values. The **policy improvement theorem** then gives the global conclusion:
+
+$$
+v_{\pi'}(s) \geq v_\pi(s) \quad \text{for all } s
+$$
+
+We will use the theorem as a guarantee, not prove it. The intuition is that an improvement step does not need to foresee the entire future from scratch. The value function $v_\pi$ already summarizes what happens after the first step if we continue with the old policy. So improvement only asks: among the available first actions, which one gives the best immediate reward plus discounted old-policy continuation value?
+
+<Callout title="What if the policy is stochastic?" type="info">
+Policy evaluation already handles stochastic policies through $\pi(a \mid s)$. In the improvement step, we use deterministic greedy policies for clarity: choose an action that maximizes $q_\pi(s,a)$. If several actions tie for the maximum, a stochastic greedy policy may split probability among those best actions, while assigning zero probability to actions below the maximum. The policy improvement theorem still applies.
+</Callout>
+
+## Policy Iteration
+
+**Policy iteration** alternates those two processes:
+
+1. **Policy evaluation:** compute $v_\pi$ for the current policy.
+2. **Policy improvement:** make the policy greedy with respect to that value function.
+3. Repeat until the policy no longer changes.
+
+When the policy is stable after improvement, it is greedy with respect to its own value function. At that point, the Bellman expectation and optimality equations agree, so the policy is optimal.
+
+In finite MDPs, policy iteration reaches an optimal policy after finitely many improvements. The chapter does not need the proof; the operational picture is enough: evaluate, improve, evaluate, improve.
+
+This evaluate-improve loop is more general than the clean policy-iteration algorithm. Evaluation tries to make the value function consistent with the current policy. Improvement tries to make the policy greedy with respect to the current value function. The two processes interact: after improvement, the old value function is no longer exactly correct for the new policy; after evaluation changes the values, the current policy may no longer be greedy.
+
+This interaction is called **generalized policy iteration**. Full policy iteration separates the two processes into large blocks: evaluate, then improve. Later algorithms interleave them more tightly. Value iteration folds improvement into each value update; temporal-difference control methods eventually perform a similar evaluation-improvement interaction from sampled transitions rather than full model-based sweeps.
+
+## Value Iteration
+
+Policy iteration evaluates each intermediate policy before improving it. That is clean, but it can be wasteful: iterative policy evaluation may require many sweeps, and the policy being evaluated may be changed immediately afterward. The natural question is whether evaluation really has to converge before improvement happens.
+
+It does not. Policy evaluation can be **truncated**: we can stop after a few sweeps, improve the policy, and continue. **Value iteration** is the most compressed version of this idea. It stops evaluation after a single update of each state and folds the improvement step into that update by taking a maximum over actions:
+
+$$
+v_{k+1}(s) = \max_a \sum_{s',r} p(s', r \mid s, a) \left[r + \gamma v_k(s')\right]
+$$
+
+This update is almost the same shape as policy evaluation. The difference is the $\max_a$. Policy evaluation averages over the actions chosen by a fixed policy $\pi$; value iteration asks which action would be best according to the current successor values. In this sense, value iteration turns the Bellman optimality equation directly into an update rule.
+
+After repeated sweeps, the values approach $v_*$. A greedy policy is then extracted from the final value function:
+
+$$
+\pi(s) = \arg\max_a \sum_{s',r} p(s', r \mid s, a) \left[r + \gamma v(s')\right]
+$$
+
+On small problems such as Cliff Walking, value iteration often needs fewer total sweeps than full policy iteration because it does not evaluate every intermediate policy to high precision. Both methods converge to the same optimal value function $v_*$ and an optimal policy.
+
+## Why Dynamic Programming Matters
+
+Dynamic programming has two limitations. First, it needs the full model $p(s', r \mid s,a)$. Second, each sweep touches the state space, which becomes impossible when $\mathcal{S}$ is huge.
+
+Its value is that it gives the template for everything that follows. Monte Carlo methods will remove the model and estimate values from complete sampled returns. Temporal-difference methods will keep the bootstrapping idea but use single sampled transitions. Q-learning will apply the Bellman optimality backup directly to sampled action values.
+
+In that sense, dynamic programming is the exact tabular reference point: if the model is known and small enough, solve the MDP by Bellman backups. If the model is unknown or too large, approximate the same logic from experience.
+
+## Implementation Notes
+
+The full example keeps the MDP model explicit. `transitions[state, action, next_state]` stores $p(s' \mid s,a)$, and `rewards[state, action, next_state]` stores the reward associated with that transition. This matches the Bellman sums above: for each action, the code can multiply each possible next state by both its probability and its transition reward. Cliff Walking is deterministic, so each `(state, action)` pair has probability `1.0` on exactly one next state, but the representation also supports stochastic transitions by placing probability mass on several next states.
+
+```python
+transitions = np.zeros((n_states, n_actions, n_states))
+rewards = np.zeros((n_states, n_actions, n_states))
+action_deltas = [(-1, 0), (0, 1), (1, 0), (0, -1)]  # up, right, down, left
+```
+
+The core computation is the one-step lookahead. For a fixed state, it computes every action's expected one-step reward plus discounted successor value:
+
+```python
+def one_step_lookahead(
+    state: int,
+    values: np.ndarray,
+    transitions: np.ndarray,
+    rewards: np.ndarray,
+    gamma: float,
+) -> np.ndarray:
+    """Compute action values from one Bellman backup in a single state."""
+    return np.sum(transitions[state] * (rewards[state] + gamma * values), axis=1)
+```
+
+Policy evaluation averages those action values under the current policy:
+
+```python
+action_values = one_step_lookahead(state, old_values, transitions, rewards, gamma)
+values[state] = policy[state] @ action_values
+```
+
+Value iteration uses the same action values, but replaces the policy average with a maximum:
+
+```python
+action_values = one_step_lookahead(state, old_values, transitions, rewards, gamma)
+values[state] = np.max(action_values)
+```
+
+Both snippets use a **synchronous sweep**: the code copies `old_values`, then computes every new value from the previous sweep's values. This matches the indexed notation $v_{k+1}$ from $v_k$ used in the equations above. The stopping threshold $\theta$ is implemented by measuring the largest value change in a sweep:
+
+```python
+if np.max(np.abs(values - old_values)) < theta:
+    return values, sweep + 1
+```
+
+The script returns sweep counts so the terminal output can compare the amount of work done by policy iteration and value iteration. It uses $\gamma = 0.9$ and $\theta = 10^{-3}$ for readable demo output, then prints the final value function as a $4 \times 12$ grid and prints the greedy policies found by both methods. This mirrors the way tabular DP is often inspected: values show how reward information propagates through the grid, and policies show which actions are greedy after planning.
+
+Policy improvement and final policy extraction share the same helper. First compute all one-step action values, then put probability mass on the maximizing actions. If several actions tie, the code splits probability uniformly across them; this is why the printed policy can show multiple arrows in one cell.
+
+```python
+q_values = np.zeros((n_states, n_actions))
+policy = np.zeros((n_states, n_actions))
+
+for state in range(n_states):
+    q_values[state] = one_step_lookahead(state, values, transitions, rewards, gamma)
+    best_value = q_values[state].max()
+    best_actions = np.flatnonzero(np.isclose(q_values[state], best_value))
+    policy[state, best_actions] = 1.0 / len(best_actions)
+```
+
+Full uniform sweeps are not the only possible DP schedule. An asynchronous version updates states in place, so later states in the same pass may use values that were already updated. Asynchronous updates are still dynamic programming as long as every state is updated often enough. They become useful when some states matter more than others, because computation can focus on the most relevant parts of the state space. We will not develop prioritized sweeping here; it is enough to know that full uniform sweeps are not the only possible schedule for Bellman updates.
+
+## Full code
+
+The complete runnable example, including the Cliff Walking model, policy evaluation, policy improvement, policy iteration, value iteration, and policy printing:
+[`dynamic-programming.py`](https://github.com/lubludrova/rl-handbook/blob/main/content/docs/01-value-based/dynamic-programming/dynamic-programming.py)
+
+## What Comes Next
+
+Dynamic programming assumes the transition and reward model is known. The next chapter removes that assumption. When $p$ and $r$ are unknown, value functions must be estimated from sampled episodes and transitions: Monte Carlo prediction waits for returns; temporal-difference prediction bootstraps one step at a time.

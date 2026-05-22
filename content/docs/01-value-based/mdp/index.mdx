@@ -1,0 +1,144 @@
+---
+title: Markov Decision Processes
+description: "The formal framework for sequential decision-making: Markov chains, policies, value functions, and Bellman equations."
+---
+
+> **Abstract.** A multi-armed bandit has actions and rewards, but no state. A Markov Decision Process adds state back in: actions now change what the agent will see next, so an action is good not only because of its immediate reward but because of the future it leads to. This chapter builds the chain from Markov chains to MDPs, then introduces value functions and the Bellman equations.
+
+The bandit chapter isolated exploration. Each arm had an unknown reward distribution, but pulling one arm did not change the next situation. Reinforcement learning becomes sequential when the current action changes the next state. A robot's step changes its position; a game move changes the board; a recommender action changes what the user may do next.
+
+The **Markov Decision Process** is the standard mathematical language for that setting. It gives us a compact way to say what the environment can do, what the agent can choose, what reward arrives, and how future rewards are evaluated.
+
+## From Markov Chains to MDPs
+
+A **Markov chain** has states and transition probabilities, but no rewards and no actions. At each step, the process moves from state $s$ to state $s'$ according to a transition matrix $P$, where $P_{ss'} = \Pr(S_{t+1}=s' \mid S_t=s)$. The defining assumption is the **Markov property**: once the current state is known, the earlier history adds no extra information about the next state.
+
+A **Markov reward process** (MRP) adds rewards. Now each transition produces reward, and the process has a value: how much return should we expect from each state? There is still no choice. The dynamics decide where the process goes.
+
+A **Markov Decision Process** (MDP) adds actions. The agent chooses $A_t$, and the environment samples both the next state and reward. The environment dynamics is written as:
+
+$$
+p(s', r \mid s, a) = \Pr\{S_{t+1}=s', R_{t+1}=r \mid S_t=s, A_t=a\}
+$$
+
+The distribution is *joint* over $(s', r)$: in many environments the reward depends on which state the agent lands in, not just on the action taken: a robot collects reward because it reached the goal, not just because it moved. That dependency is captured in the joint. Because the Markov property holds, $p$ completely characterizes the environment: the current $(s, a)$ carries all the information, earlier states and actions add nothing.
+
+<Callout title="What the Markov property is about" type="info">
+The Markov property does not say the world has no history. It says the state representation contains all history that matters for predicting the next step. If the state is incomplete, for example a single image frame that omits velocity, the MDP assumption is only approximate.
+</Callout>
+
+## Returns, Discounting, and Policies
+
+As in the introduction, the agent evaluates a trajectory by its **return**:
+
+$$
+G_t = \sum_{k=0}^{\infty} \gamma^k R_{t+k+1} = R_{t+1} + \gamma R_{t+2} + \gamma^2 R_{t+3} + \gamma^3 R_{t+4} + \cdots
+$$
+
+The discount factor $\gamma \in [0, 1]$ controls how much future reward matters today. A value near $0$ means the agent cares almost exclusively about immediate reward. A value near $1$ means distant rewards count almost as much as near ones, so the agent plans far ahead. In episodic tasks a terminal state ends the sum, so $\gamma = 1$ is allowed: every step within the episode counts equally, as in the Small GridWorld example from the introduction. In the discounted continuing setting used here, where there is no natural endpoint, we usually take $\gamma < 1$ so the infinite sum remains finite.
+
+An MDP defines the *environment* — the rules of the game. The agent's behavior is a separate object called a **policy** $\pi$. A stochastic policy $\pi(a \mid s)$ gives a probability distribution over actions in state $s$. A deterministic policy chooses a single action, often written as $\pi(s)$.
+
+Once a policy is fixed, the agent's behavior is fully determined: in each state $s$, the action is drawn from $\pi(a \mid s)$ with no open choice left. The MDP plus a fixed policy together behave like a Markov reward process: the actions are averaged out under the policy, so only states and rewards remain. For example, the policy-induced state-reward dynamics are:
+
+$$
+p_\pi(s', r \mid s) = \sum_a \pi(a \mid s) p(s', r \mid s,a)
+$$
+
+This is the same averaging that will appear in the Bellman expectation equation below. The remaining question is how good that behavior is. That is what value functions measure.
+
+## State-Value and Action-Value Functions
+
+The **state-value function** of a policy is the expected return starting from state $s$ and then following $\pi$:
+
+$$
+v_\pi(s) = \mathbb{E}_\pi[G_t \mid S_t = s]
+$$
+
+The **action-value function** conditions on both the current state and the first action:
+
+$$
+q_\pi(s, a) = \mathbb{E}_\pi[G_t \mid S_t = s, A_t = a]
+$$
+
+The difference is practical. $v_\pi(s)$ tells us how good it is to be in a state under the policy. $q_\pi(s,a)$ tells us how good it is to choose a particular action first, then follow the policy afterward. Value-based control methods eventually rely on $q$ because choosing greedily only requires comparing actions:
+
+$$
+\arg\max_a q(s,a)
+$$
+
+The two functions measure different things, but one follows from the other. $v_\pi(s)$ asks: how good is it to be in state $s$ under $\pi$? The only random choice at the first step is the action, so we can break the expectation into cases — one for each possible action — weighted by how likely the policy is to choose it:
+
+$$
+v_\pi(s) = \mathbb{E}_\pi[G_t \mid S_t = s] = \sum_a \Pr(A_t=a \mid S_t=s)\, \mathbb{E}_\pi[G_t \mid S_t=s, A_t=a] = \sum_a \pi(a \mid s)\, q_\pi(s,a)
+$$
+
+In words: if the policy takes action $a$ with high probability, that action's $q_\pi(s,a)$ pulls the state value toward it; if the policy almost never takes $a$, it barely contributes.
+
+$q_\pi(s,a)$ is more specific: it fixes the first action to $a$, then asks the same question. To improve the policy, the agent must compare individual actions in the same state, not only know their average. The dynamics provide the symmetric connection. After taking action $a$ in state $s$, the environment transitions to $s'$ with reward $r$ according to $p$. The value from $s'$ onward is $v_\pi(s')$:
+
+$$
+q_\pi(s,a) = \sum_{s', r} p(s', r \mid s, a) \left[r + \gamma v_\pi(s')\right]
+$$
+
+The policy links $v_\pi$ to $q_\pi$; the dynamics link $q_\pi$ back to $v_\pi$. Substituting one into the other gives equations where each function is expressed in terms of itself — that is what the Bellman equations do.
+
+## Bellman Expectation Equations
+
+The Bellman idea is one-step decomposition. Instead of treating the return as one long object, split it into the next reward plus the discounted return from the next state:
+
+$$
+G_t = R_{t+1} + \gamma G_{t+1}
+$$
+
+Taking expectation under a fixed policy gives the Bellman expectation equation for $v_\pi$:
+
+$$
+v_\pi(s) = \sum_a \pi(a \mid s) \sum_{s', r} p(s', r \mid s, a) \left[r + \gamma v_\pi(s')\right]
+$$
+
+Read it from inside out. If we take action $a$ in state $s$, the environment may produce next state $s'$ and reward $r$. The total value of that outcome is immediate reward $r$ plus discounted future value $\gamma v_\pi(s')$. We first average over environment outcomes $s'$ and $r$ (the inner summation), then average over the policy's action probabilities (the outer summation).
+
+For $q_\pi$, substitute $v_\pi(s') = \sum_{a'} \pi(a' \mid s') q_\pi(s', a')$ into the $q$ equation from the previous section:
+
+$$
+q_\pi(s,a) = \sum_{s', r} p(s', r \mid s, a) \left[r + \gamma \sum_{a'} \pi(a' \mid s') q_\pi(s',a')\right]
+$$
+
+The inner sum over $a'$ is $v_\pi(s')$ written out — the policy's weighted average over actions in the next state.
+
+The Bellman equations evaluate a *given* policy. But the agent does not arrive with a good policy in hand. It needs the *best* policy — the one that maximises expected return from every state.
+
+## Optimal Value Functions
+
+Suppose we could compare every possible policy and pick the one with the highest value in state $s$. That best value is the **optimal state-value function**:
+
+$$
+v_*(s) = \max_\pi v_\pi(s)
+$$
+
+The **optimal action-value function** is defined the same way, but conditioned on taking action $a$ first:
+
+$$
+q_*(s,a) = \max_\pi q_\pi(s,a)
+$$
+
+There is always at least one **optimal policy** $\pi_*$ that attains these maxima in every state simultaneously. For finite MDPs, moreover, there exists an optimal *deterministic* policy: the agent does not need randomness once $q_*$ is known. It can simply pick the action with the highest $q_*$ in each state.
+
+How does the Bellman idea change when we move from evaluation to optimisation? In the expectation equation we averaged over actions weighted by the policy $\pi(a \mid s)$. In the optimality equation we replace that average with a $\max$: we ask, "If we could choose the best action right now, which one would it be?"
+
+This gives the Bellman optimality equations:
+
+$$
+v_*(s) = \max_a \sum_{s', r} p(s', r \mid s, a) \left[r + \gamma v_*(s')\right]
+$$
+
+$$
+q_*(s,a) = \sum_{s', r} p(s', r \mid s, a) \left[r + \gamma \max_{a'} q_*(s',a')\right]
+$$
+
+The inner $\max$ is the core of control: from the next state $s'$ we act as if we can freely choose the best action $a'$. The outer sum averages over environment outcomes, because the agent cannot control where the environment lands, it can only control the action it sends. These two equations are self-consistency conditions: if we knew $v_*$ or $q_*$, we could verify them by checking that every state satisfies its equation. The next chapter turns these conditions into algorithms that actually compute the optimal values when the dynamics $p$ are known.
+
+## What Comes Next
+
+This chapter defines the objects: dynamics, policies, values, and Bellman equations. The next question is how to solve them when the dynamics $p(s',r \mid s,a)$ are known. Dynamic programming answers that with policy evaluation, policy improvement, policy iteration, and value iteration.

@@ -1,0 +1,139 @@
+---
+title: What is Reinforcement Learning?
+description: "Overview of the RL paradigm: agents, environments, rewards, and the learning loop."
+---
+
+> **Abstract.** Most machine learning systems learn from fixed datasets, but real decision-making unfolds over time, where each choice shapes the next observation. Reinforcement learning formalizes this: an agent acts in an environment, collects scalar rewards, and learns to maximize their cumulative sum. This chapter establishes the foundational vocabulary (the agent–environment loop, the Markov Decision Process, returns, and policies) that every subsequent chapter presupposes.
+
+Machine learning, broadly, is about learning from data. Supervised learning takes labeled examples and fits a function. Unsupervised learning finds structure in unlabeled data. Both assume the data already exists, static and ready to be processed.
+
+Reinforcement learning breaks this assumption. The data comes from *interaction*: the agent's choices determine what it observes next. This single change introduces challenges that supervised learning never faces and made RL what it is now.
+
+## A Different Kind of Learning
+
+Imagine training a robot arm to stack blocks. One approach: collect demonstrations from a human, label each joint position, train a regression model. This works in a narrow range of setups but fails when the block is in an unexpected position or the arm starts from a different configuration. The label "correct joint angle" depends on the robot's own state at the time, which depends on every prior action.
+
+Reinforcement learning handles this differently. The arm tries to stack a block. It drops it. It receives a low reward. Over thousands of attempts, it adjusts its behavior. No labeled demonstrations are required: only a way to measure whether things are going well (the reward signal) and an algorithm for improving based on that measurement.
+
+A challenge with no analogue in supervised learning arises here: the **exploration–exploitation trade-off**. To accumulate reward, the agent must prefer actions it has tried and found effective. But to discover such actions in the first place, it has to try actions it has never selected. It must *exploit* what it already knows to obtain reward, and it must *explore* to improve its choices in the future. Exploit too heavily and the agent gets stuck in a local optimum — the arm settles for its first decent grasp and never discovers a smoother motion. Explore too aggressively and it never refines what works — every attempt is a fresh guess. On a stochastic task, each action must be tried many times before its expected reward can even be estimated reliably. The dilemma has been studied for decades and is not resolved; what is clear is that it does not arise in supervised learning, where the data is fixed in advance.
+
+Another defining feature of reinforcement learning is that it considers the whole problem of a goal-directed agent interacting with an uncertain environment, rather than carving out an isolated subproblem. Supervised learning asks a clean question — given an input, predict an output — without specifying how the prediction will be used. Classical planning asks another — given a model, find the best action sequence — without asking where the model came from or how the agent should act in real time. RL refuses that decomposition. The agent has explicit goals, senses aspects of its environment, and acts on it; learning, planning, and decision making are interleaved rather than separated. Subproblems still need to be isolated and studied, but each one must play a recognizable role inside the complete picture of an agent that *acts*, not just predicts.
+
+## Elements of an RL System
+
+An RL system has two components: an **agent** that makes decisions and an **environment** that responds to them. They interact in a cycle.
+
+At each discrete time step $t$:
+
+1. The environment presents a **state** $s_t \in \mathcal{S}$.
+2. The agent selects an **action** $a_t \in \mathcal{A}$.
+3. The environment transitions to a new state $s_{t+1}$ and emits a scalar **reward** $R_{t+1}$. (In some works the same reward is denoted $R_t$, aligned with the action $a_t$ that produced it.)
+4. The agent observes $R_{t+1}$ and $s_{t+1}$, and the cycle repeats.
+
+The loop continues until a **terminal state** is reached (ending an **episode**) or indefinitely (a **continuing task**).
+
+The full sequence $s_0, a_0, R_1, s_1, a_1, R_2, \ldots$ that the loop produces is called a **trajectory**. Trajectories are the basic unit of data in RL: where supervised learning trains on a fixed set of labeled examples, RL trains on trajectories the agent generates by acting.
+
+Beyond the agent and the environment themselves, an RL system has four main elements:
+
+- **Reward signal.** The number the environment sends to the agent at each step. It defines the goal: the agent's objective is to maximize the expected cumulative reward, which is the only feedback the agent ever receives. The reward is set by the environment, not chosen by the agent.
+
+- **Policy.** The agent's decision rule, mapping situations to actions. The policy is what the agent actually does; everything else exists to find a good one. It can be deterministic ("always go right in this state") or stochastic ("go right with probability 0.7"). It can be represented by a lookup table or a simple function for small problems or a neural network in modern RL.
+
+- **Value function.** An estimate of the expected return from a given state, or from a given state–action pair, which is the total amount of reward an agent can expect to accumulate over the future. Where the reward signal says what is good *right now*, the value function says what is good *in the long run*. A state with zero immediate reward can still have high value because it leads to states that yield high reward. Most algorithms in this handbook are organized around estimating value functions accurately, because once long-term reward can be predicted, choosing actions reduces to picking the one with the highest value.
+
+- **Model.** An optional internal description of the environment: given a state and action, what state and reward come next. Methods that learn and use this information are called **model-based**; methods that work directly from experience are **model-free**. Model-based methods can plan by simulating possible futures before acting, model-free methods skip the model entirely and learn directly from experience.
+
+The reward $R_{t+1}$ is the only feedback signal. There are no labels, no corrections, no explanations. Every step, one number. And the agent's job is to maximize the total reward it collects over time. 
+
+## Returns and Discounting
+
+The statement above needs two refinements though.
+
+First, the environment is stochastic. Even with a fixed strategy, the same starting situation can unroll into very different trajectories — a slip in a robot's joint, a die roll in a game, a noisy sensor reading. The total reward along any single trajectory is therefore a random variable, and the agent cannot maximize it directly; it can only maximize its **expected value** across the trajectories its strategy induces.
+
+Second, "total reward" has to weight near and distant rewards differently. Treating a reward arriving in ten steps the same as one arriving now is practically wrong (delayed payoffs should usually count for less) and mathematically inconvenient (the sum need not converge for tasks that never end). 
+
+Let us call **return** $G_t$ as a quantity every RL algorithm optimizes (total reward), which is the discounted sum of all future rewards from step $t$ onward:
+$$
+G_t = R_{t+1} + \gamma R_{t+2} + \gamma^2 R_{t+3} + \cdots = \sum_{k=0}^{\infty} \gamma^k R_{t+k+1}
+$$
+
+In plain terms: rewards in the near future count more than rewards far away. The scalar $\gamma \in [0, 1)$ is the **discount factor**: how steeply the agent discounts the future. Requiring $\gamma < 1$ guarantees the sum converges: the geometric series $\sum_{k=0}^{\infty} \gamma^k = 1/(1-\gamma)$ is finite for any $\gamma < 1$, so $G_t$ stays bounded even when the task never ends. A lot of practical algorithms set $\gamma$ close to 1 so the agent plans well into the future.
+
+Underlying this is the **reward hypothesis**: all goals can be expressed as the maximization of the expected cumulative scalar reward. Whether that is always true is a question the field is still working through.
+
+These definitions are abstract. A concrete example makes them easier to see.
+
+## Example: Small GridWorld
+
+The **Small GridWorld** is a 4×4 grid with 16 cells. The two shaded corners are **terminal states**: reaching any of them ends the episode. Every step from a non-terminal cell yields a reward of $-1$. This is an undiscounted, episodic task: $\gamma = 1$
+
+<svg width="640" height="248" viewBox="0 0 640 248" xmlns="http://www.w3.org/2000/svg" style={{display:'block',margin:'1.5rem auto'}}>
+  <defs>
+    <marker id="arrowhead" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#0A0A0A"/>
+    </marker>
+  </defs>
+  <line x1="72" y1="124" x2="72" y2="86" stroke="#0A0A0A" strokeWidth="1.5" markerEnd="url(#arrowhead)"/>
+  <line x1="72" y1="124" x2="72" y2="162" stroke="#0A0A0A" strokeWidth="1.5" markerEnd="url(#arrowhead)"/>
+  <line x1="72" y1="124" x2="34" y2="124" stroke="#0A0A0A" strokeWidth="1.5" markerEnd="url(#arrowhead)"/>
+  <line x1="72" y1="124" x2="110" y2="124" stroke="#0A0A0A" strokeWidth="1.5" markerEnd="url(#arrowhead)"/>
+  <text x="72" y="196" textAnchor="middle" fontSize="11" fontFamily="var(--font-code)" fill="#555555">actions</text>
+  <rect x="160" y="12" width="56" height="56" fill="#F1F3F5" stroke="#D1D5DB" strokeWidth="1.5"/>
+  <rect x="216" y="12" width="56" height="56" fill="white" stroke="#D1D5DB" strokeWidth="1.5"/>
+  <rect x="272" y="12" width="56" height="56" fill="white" stroke="#D1D5DB" strokeWidth="1.5"/>
+  <rect x="328" y="12" width="56" height="56" fill="white" stroke="#D1D5DB" strokeWidth="1.5"/>
+  <rect x="160" y="68" width="56" height="56" fill="white" stroke="#D1D5DB" strokeWidth="1.5"/>
+  <rect x="216" y="68" width="56" height="56" fill="white" stroke="#D1D5DB" strokeWidth="1.5"/>
+  <rect x="272" y="68" width="56" height="56" fill="white" stroke="#D1D5DB" strokeWidth="1.5"/>
+  <rect x="328" y="68" width="56" height="56" fill="white" stroke="#D1D5DB" strokeWidth="1.5"/>
+  <rect x="160" y="124" width="56" height="56" fill="white" stroke="#D1D5DB" strokeWidth="1.5"/>
+  <rect x="216" y="124" width="56" height="56" fill="white" stroke="#D1D5DB" strokeWidth="1.5"/>
+  <rect x="272" y="124" width="56" height="56" fill="white" stroke="#D1D5DB" strokeWidth="1.5"/>
+  <rect x="328" y="124" width="56" height="56" fill="white" stroke="#D1D5DB" strokeWidth="1.5"/>
+  <rect x="160" y="180" width="56" height="56" fill="white" stroke="#D1D5DB" strokeWidth="1.5"/>
+  <rect x="216" y="180" width="56" height="56" fill="white" stroke="#D1D5DB" strokeWidth="1.5"/>
+  <rect x="272" y="180" width="56" height="56" fill="white" stroke="#D1D5DB" strokeWidth="1.5"/>
+  <rect x="328" y="180" width="56" height="56" fill="#F1F3F5" stroke="#D1D5DB" strokeWidth="1.5"/>
+  <text x="244" y="45" textAnchor="middle" fontSize="13" fontFamily="var(--font-code)" fill="#333333">1</text>
+  <text x="300" y="45" textAnchor="middle" fontSize="13" fontFamily="var(--font-code)" fill="#333333">2</text>
+  <text x="356" y="45" textAnchor="middle" fontSize="13" fontFamily="var(--font-code)" fill="#333333">3</text>
+  <text x="188" y="101" textAnchor="middle" fontSize="13" fontFamily="var(--font-code)" fill="#333333">4</text>
+  <text x="244" y="101" textAnchor="middle" fontSize="13" fontFamily="var(--font-code)" fill="#333333">5</text>
+  <text x="300" y="101" textAnchor="middle" fontSize="13" fontFamily="var(--font-code)" fill="#333333">6</text>
+  <text x="356" y="101" textAnchor="middle" fontSize="13" fontFamily="var(--font-code)" fill="#333333">7</text>
+  <text x="188" y="157" textAnchor="middle" fontSize="13" fontFamily="var(--font-code)" fill="#333333">8</text>
+  <text x="244" y="157" textAnchor="middle" fontSize="13" fontFamily="var(--font-code)" fill="#333333">9</text>
+  <text x="300" y="157" textAnchor="middle" fontSize="13" fontFamily="var(--font-code)" fill="#333333">10</text>
+  <text x="356" y="157" textAnchor="middle" fontSize="13" fontFamily="var(--font-code)" fill="#333333">11</text>
+  <text x="188" y="213" textAnchor="middle" fontSize="13" fontFamily="var(--font-code)" fill="#333333">12</text>
+  <text x="244" y="213" textAnchor="middle" fontSize="13" fontFamily="var(--font-code)" fill="#333333">13</text>
+  <text x="300" y="213" textAnchor="middle" fontSize="13" fontFamily="var(--font-code)" fill="#333333">14</text>
+  <text x="528" y="112" textAnchor="middle" fontSize="14" fontFamily="var(--font-code)" fill="#0A0A0A">
+    <tspan>R</tspan><tspan dy="4" fontSize="10">t</tspan><tspan dy="-4"> = −1</tspan>
+  </text>
+  <text x="528" y="134" textAnchor="middle" fontSize="11" fontFamily="var(--font-code)" fill="#555555">on all transitions</text>
+</svg>
+
+The nonterminal states are $\mathcal{S} = \{1, 2, \ldots, 14\}$. The action set is $\mathcal{A} = \{\text{up}, \text{down}, \text{right}, \text{left}\}$. Transitions are deterministic: each action moves the agent to the adjacent cell in that direction. Actions that would take the agent off the grid leave it in place: moving right from state 5 reaches state 6, but moving right from state 3 (the right edge) keeps the agent in state 3.
+
+Every concept from the loop (we discussed before) maps directly onto this example:
+
+- **State**: one of 14 non-terminal cells ($\mathcal{S} = \{1, \ldots, 14\}$) plus two terminal states.
+- **Action**: one of four directions ($\mathcal{A} = \{\text{up}, \text{down}, \text{right}, \text{left}\}$).
+- **Reward**: $R_t = -1$ on every non-terminal transition.
+- **Episode**: a sequence of moves until a terminal cell is reached.
+- **Return**: $G_0 = -k$, where $k$ is the number of steps. Shorter paths yield higher returns.
+
+The agent has no map. Under a random policy (each action equally likely), it wanders and accumulates $-1$ at every step. The agent has to learn how to accumulate the maximum total reward, therefore how to make the least number of step till he reaches the terminal state. A good algorithm learns the shortest path from any cell to the nearest terminal state.
+
+## What the Agent Is Looking For
+
+What we have just described — states, actions, transitions, a reward at each step, and a discount over future rewards — has a formal name: a **Markov Decision Process** (MDP). The defining assumption it makes is the **Markov property**: the next state and reward depend only on the current state and action, not on how the agent got there. In GridWorld the current cell is all that matters; the path to it is irrelevant.
+
+This is an idealization. A robot arm needs velocity in addition to position, and a single photo of a thrown ball cannot tell you whether it is rising or falling. In practice, usually the "state" often includes recent history — for instance several past observations bundled together — to make the Markov property approximately hold. The full mathematical build-up of the MDP — dynamics, value functions, the Bellman equations — is the subject of the <a href="/docs/01-value-based/mdp">chapter on MDPs</a>.
+
+The solution to an MDP is a **policy** $\pi$: a rule that tells the agent which action to take in each state. A stochastic policy $\pi(a \mid s)$ assigns a probability to each action; a deterministic policy $\pi(s)$ maps each state to a single action. Not all policies are equal. The **optimal policy** $\pi^*$ is the one that maximizes expected return from every state. As mentioned above, finding $\pi^*$ is the goal of every RL algorithm. An agent typically starts with a random or arbitrary policy and improves it through experience.
+
+The catch: the agent does not know the environment's transitions or reward function in advance. It cannot compute $\pi^*$ analytically. It can only act, observe the consequences, and adjust. Different algorithm families answer this constraint differently — some estimate the value of actions, some directly optimize the policy parameters, some build a model of the environment. The next chapter maps those families and the trade-offs between them.

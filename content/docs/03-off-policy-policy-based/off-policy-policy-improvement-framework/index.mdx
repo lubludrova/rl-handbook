@@ -1,0 +1,290 @@
+---
+title: Off-Policy Policy-Based Framework
+description: "How off-policy policy-based methods reuse replay data, learn a Q-critic, and improve the actor through the critic."
+---
+
+> **Abstract.** PPO closed the on-policy policy-based path for now: collect fresh rollouts, estimate advantages, update the policy, and discard the batch. Off-policy actor-critic methods ask for a different trade-off. They keep the actor-critic idea, but train from a replay buffer and improve the actor using a learned $Q_w(s,a)$ critic. This chapter builds the framework that DDPG, TD3, and SAC will use.
+
+The previous chapters improved policies directly. REINFORCE used Monte Carlo returns. A2C and A3C replaced those returns with bootstrapped advantages from a critic. TRPO and PPO then focused on the step-size problem: how to keep an on-policy update from moving the policy too far from the data that produced the gradient.
+
+All of those methods share one practical constraint. Their data is fresh. A rollout is collected by the current policy, used for one update or a small number of controlled updates, and then thrown away. This makes the theory clean, but it can be sample-inefficient. If one transition was expensive to collect from a robot or simulator, we would like to train from it more than once.
+
+That is the motivation for the next branch of actor-critic methods. We want a policy-based method that can learn from old data in a replay buffer. To get there, we need to change what the critic estimates and how the actor uses it.
+
+## Back to Policy Iteration
+
+The cleanest way to organize this shift is **generalized policy iteration**. In dynamic programming, policy iteration alternated two steps:
+
+1. **Policy evaluation:** estimate the value of the current policy.
+2. **Policy improvement:** make the policy better using that value function.
+
+In the tabular case, the improvement step was greedy. Once we had an action-value function, we could choose
+
+$$
+\pi'(s) = \arg\max_a Q(s,a).
+$$
+
+This formula is simple because the action set is finite. The value function scores each possible action, and the policy picks the largest score.
+
+Modern actor-critic methods keep the same shape, but replace tables with neural networks. The critic performs approximate policy evaluation. The actor performs approximate policy improvement. The two updates do not wait for exact convergence; they chase each other, one minibatch at a time.
+
+The important change in this section is that the data no longer has to come from the current actor. A replay buffer stores transitions collected by older versions of the policy, or by a noisy behavior policy. That makes the method off-policy: the behavior policy that generated the data is not necessarily the target policy we are improving.
+
+## What Made Previous Algorithms On-Policy
+
+Before changing the algorithm, it helps to separate the two reasons earlier methods stayed on-policy. We will firstly quickly introduce 
+
+On the **policy-evaluation** side, A2C, A3C, and PPO usually do not rely on plain one-step TD only. They use short $n$-step returns, GAE, or Monte Carlo-style returns to estimate how good the policy was along a rollout. All of these belong to the same family: use several real rewards from the trajectory before bootstrapping.
+
+The simplest evaluation target is one-step:
+
+$$
+y^{(1)}(s,a) = r + \gamma Q_w(s',a'),
+\qquad a' \sim \pi(\cdot \mid s').
+$$
+
+It can be used off-policy more naturally because the target immediately switches to the policy we want to evaluate at the next state. This is sample-efficient and fits replay buffers, but it has the same problems we saw in DQN: slow reward propagation and a need for target networks in deep bootstrapped learning.
+
+The other option is an ensemble of $n$-step targets. A $\lambda$-return writes this idea as a weighted mixture:
+
+$$
+y^{(\lambda)}
+=
+(1-\lambda)
+\left(
+y^{(1)} + \lambda y^{(2)} + \lambda^2 y^{(3)} + \cdots
+\right),
+$$
+
+where $y^{(2)}$ uses two real rewards before bootstrapping, $y^{(3)}$ uses three, and the Monte Carlo return is the full-episode endpoint. These targets propagate rewards faster and on-policy actor-critic methods can often train without DQN-style target networks. Their main drawback is the policy assumption: the rewards in the multi-step segment came from the behavior policy. They are clean targets only when that behavior policy is the current policy.
+
+On the **policy-improvement** side, REINFORCE-style policy gradients are also on-policy by default. Their expectation is over states and actions sampled from the current policy:
+
+$$
+\nabla_\theta J(\theta)
+=
+\mathbb{E}_{s\sim\rho^{\pi_\theta},\,a\sim\pi_\theta}
+\left[
+\nabla_\theta \log \pi_\theta(a\mid s)\, Q^{\pi_\theta}(s,a)
+\right].
+$$
+
+If we replace those samples with arbitrary replay-buffer samples, the expression is no longer the same gradient. Importance sampling can correct this in principle, but the ratios become noisy when the behavior and target policies drift apart. PPO uses importance ratios only inside one fresh batch from a recent old policy. It is not a standard replay-buffer method.
+
+The off-policy actor-critic branch changes both pieces: the critic is trained with replay-compatible one-step targets, and the actor is improved by moving its proposed actions toward higher critic values.
+
+## Policy Evaluation
+
+Policy evaluation means learning the value of the policy we want to improve. The first design choice is how far the target looks before it bootstraps.
+
+For a deterministic target actor $\mu_\theta$, the one-step evaluation target has the shape
+
+$$
+y = r + \gamma Q_{\bar w}(s', \mu_{\bar\theta}(s')).
+$$
+
+The transition $(s,a,r,s')$ may have been collected by an older noisy behavior policy. The target still evaluates the current target actor at the next state through $\mu_{\bar\theta}(s')$. This is the same off-policy idea as Q-learning: the data action and the target-policy action do not have to be the same.
+
+Contrast this with an $n$-step on-policy target:
+
+$$
+y_t^{(n)}
+=
+\sum_{k=0}^{n-1}\gamma^k R_{t+k+1}
++ \gamma^n V(S_{t+n}).
+$$
+
+The rewards in this sum came from the actions actually taken along the rollout. Without correction, that rollout should be generated by the policy being evaluated. This is why A2C, A3C, PPO, and GAE stay close to fresh on-policy data, while DDPG-style methods prefer one-step replay-buffer targets.
+
+The second design choice is what the critic should predict. In the on-policy chapters, the critic was usually a state-value function:
+
+$$
+V_w(s).
+$$
+
+That worked because the action had already been sampled by the current policy. A2C and PPO only needed the critic to help build an advantage estimate: was the sampled action better or worse than the average behavior in that state?
+
+Off-policy policy improvement asks a different question. We sample a state from the replay buffer and ask what action the current actor should choose there. A state-value function cannot compare candidate actions. It gives the same number no matter which action the actor proposes.
+
+So the off-policy continuous-control branch learns an action-value critic:
+
+$$
+Q_w(s,a).
+$$
+
+This is the value object used by DDPG, TD3, and SAC. It lets the critic evaluate a replayed transition $(s,a,r,s')$, and it also lets the actor ask whether its own proposed action looks good. In on-policy actor-critic, the critic often supplies an advantage estimate for an action already sampled by the policy. In off-policy actor-critic, the critic is also used as an improvement surface: it tells the actor which actions look better at replayed states.
+
+<Callout title="A small caveat" type="info">
+Multi-step off-policy methods do exist when they add correction terms, such as importance sampling or truncated corrections. This chapter is about the simpler deep continuous-control branch: DDPG, TD3, and SAC. Those methods rely mainly on one-step replay-buffer updates.
+</Callout>
+
+## Policy Improvement
+
+Policy improvement means: given an old policy $\hat\pi$ and its action-value function $Q^{\hat\pi}(s,a)$, construct a new policy $\pi$ that is at least as good. For one state $s$, the improvement condition is
+
+$$
+\mathbb{E}_{a\sim\pi(\cdot\mid s)}
+\left[
+Q^{\hat\pi}(s,a)
+\right]
+\geq
+V^{\hat\pi}(s).
+$$
+
+The left side asks: if we choose actions from the new policy $\pi$ in state $s$, but evaluate those actions using the old policy's critic, is the result at least as good as simply following $\hat\pi$? If this holds for every state, the policy improvement theorem tells us that $\pi$ improves on $\hat\pi$.
+
+In optimization form, this becomes
+
+$$
+\max_{\pi}
+\;
+\mathbb{E}_{s}
+\mathbb{E}_{a\sim\pi(\cdot\mid s)}
+\left[
+Q^{\hat\pi}(s,a)
+\right].
+$$
+
+In the tabular policy-iteration chapter, the strongest version of this step was the greedy policy $\pi'(s)=\arg\max_a Q^{\hat\pi}(s,a)$. With a neural actor, we usually do not replace the whole policy in one exact greedy step. We move the actor parameters so that the actor's actions receive higher critic values.
+
+In on-policy policy gradients, the state distribution is usually $\rho^{\pi_\theta}$. This is different from the policy-gradient view. Policy improvement has a weaker requirement: it does not need to find the best possible new policy in one step. It only asks for a policy that is better than, or at least no worse than, the current one according to the critic. Policy gradient is more direct: it tries to follow the local gradient of the policy's real return objective, with states and actions sampled from the current policy. That makes the standard policy-gradient estimator on-policy. Policy improvement can be used in an off-policy way once the critic can evaluate actions at replayed states.
+
+Now the practical question is: how do we take the gradient with respect to $\theta$?
+
+**1. REINFORCE form.** Use the log-derivative trick:
+
+$$
+\nabla_\theta J(\theta)
+=
+\mathbb{E}_{s}
+\mathbb{E}_{a\sim\pi_\theta(\cdot\mid s)}
+\left[
+\nabla_\theta \log\pi_\theta(a\mid s)\,Q(s,a)
+\right].
+$$
+
+This is the same estimator family we used in REINFORCE, A2C, and PPO. It treats the sampled action as a fixed label. If $Q(s,a)$ is high, the policy increases the probability of that sampled action; if it is low, the probability goes down.
+
+The advantage of this route is generality. It works for categorical policies in discrete action spaces, and for complicated distributions as long as we can compute $\log\pi_\theta(a\mid s)$. The cost is variance: the critic value or advantage multiplies the score term directly.
+
+The other cost is the on-policy assumption. The action inside $\nabla_\theta\log\pi_\theta(a\mid s)$ is supposed to be sampled from the same policy $\pi_\theta$ that we are updating. If the action came from an old behavior policy $\pi_\text{old}(a\mid s)$ in a replay buffer, then the update is pretending that $\pi_\theta$ chose an action it may not actually choose often. In principle we can correct this with importance sampling, multiplying by ratios such as $\pi_\theta(a\mid s)/\pi_\text{old}(a\mid s)$. In long trajectories those ratios multiply across time and the variance can explode. This is why standard REINFORCE-style updates are treated as on-policy in practice, and why replay-buffer actor-critics usually prefer the pathwise route through a $Q$-critic.
+
+**2. Reparameterization trick.** If the action sample can be written as a differentiable function of the policy parameters and a noise variable,
+
+$$
+a = f_\theta(s,\epsilon),
+\qquad
+\epsilon\sim p(\epsilon),
+$$
+
+then the expectation over actions can be rewritten as an expectation over fixed noise:
+
+$$
+J(\theta)
+=
+\mathbb{E}_{s}
+\mathbb{E}_{\epsilon\sim p(\epsilon)}
+\left[
+Q_w(s,f_\theta(s,\epsilon))
+\right].
+$$
+
+Now the gradient is ordinary backpropagation through the action:
+
+$$
+\nabla_\theta J(\theta)
+=
+\mathbb{E}_{s,\epsilon}
+\left[
+\nabla_\theta Q_w(s,f_\theta(s,\epsilon))
+\right].
+$$
+
+By the chain rule, the gradient flows from the critic's action input into the actor:
+
+$$
+\nabla_\theta Q_w(s,f_\theta(s,\epsilon))
+=
+\nabla_a Q_w(s,a)\big|_{a=f_\theta(s,\epsilon)}
+\nabla_\theta f_\theta(s,\epsilon).
+$$
+
+For a Gaussian policy, this means writing
+
+$$
+a = \mu_\theta(s) + \sigma_\theta(s)\epsilon,
+\qquad
+\epsilon\sim\mathcal{N}(0,I).
+$$
+
+For a deterministic actor, the noise disappears and $a=\mu_\theta(s)$. The improvement objective becomes
+
+$$
+\max_\theta
+\;
+\mathbb{E}_{s\sim\mathcal{D}}
+\left[
+Q_w(s,\mu_\theta(s))
+\right].
+$$
+
+| REINFORCE                                                                                                        | Reparameterization trick                                                                                  |
+| ---------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| $\mathbb{E}_s\mathbb{E}_{a\sim\pi_\theta(\cdot\mid s)}\left[\nabla_\theta\log\pi_\theta(a\mid s)Q_w(s,a)\right]$ | $\mathbb{E}_s\mathbb{E}_{\epsilon\sim p(\epsilon)}\left[\nabla_\theta Q_w(s,f_\theta(s,\epsilon))\right]$ |
+| Discrete actions.                                                                                                | Gaussian policies.                                                                                        |
+| Mixture policies with tractable log-probability.                                                                 | Deterministic policies $\mu_\theta(s)$ in continuous action spaces.                                       |
+| On-policy rollouts with $n$-step estimates.                                                                      | Differentiable actor and differentiable $Q_w(s,a)$.                                                       |
+
+This table separates two ways to take an actor gradient. On-policy policy-based methods use the REINFORCE route: sample an action from the current policy, then change the probability of that sampled action using the score term $\nabla_\theta\log\pi_\theta(a\mid s)$. This is why methods like REINFORCE, A2C, and PPO work naturally with discrete actions and rollout-based estimates such as $n$-step returns or GAE. The price is that the rollout should come from the current policy.
+
+Off-policy policy-based methods use the reparameterization route when the action can be written as a differentiable function of the actor parameters. Instead of increasing the probability of an already sampled action, the actor follows the critic's slope with respect to the action. The price is that we need a differentiable action path: you cannot differentiate over discrete actions or even gaussian mixtures, moreover you cannot use n-step estimates now (because it will simply loose it's ability to be off-policy). But this fits replay-buffer learning: the state can come from old data, while the critic is queried at the actor's current action. 
+
+## Why We Care About Continuous Control
+
+The reason this branch matters is continuous control. In these tasks, the agent does not choose from a small list of actions. It outputs continuous numbers. A robot arm outputs joint commands, a car outputs steering and throttle, and a drone outputs motor thrusts.
+
+A convenient way to write these actions is a normalized box:
+
+$$
+\mathcal{A} = [-1,1]^m.
+$$
+
+Each coordinate is one control channel. For example, in a robot arm, $m$ can be the number of joints. The value $-1$ means the lowest allowed command for that joint, $1$ means the highest allowed command, and the environment maps this normalized value back to real torques or motor signals.
+
+This is where off-policy learning becomes tempting. Robot data is expensive: it takes real time, can wear hardware, and unsafe exploration can break things. If one transition costs effort to collect, we want to reuse it many times from a replay buffer instead of throwing it away after one on-policy update.
+
+But this trade-off is not free. Off-policy algorithms such as DQN and DDPG are often more sample-efficient, but they usually rely on one-step Bellman targets. If the useful reward arrives only after a long delay, the signal has to propagate backward through many bootstraps. Each bootstrap can add approximation error.
+
+Imagine a sparse reward task where the agent gets $+1$ only after reaching a goal. From one state, going right reaches the reward in 100 steps, while going left reaches it in 102 steps. The true values may look like
+
+$$
+Q^*(s,\rightarrow)=\gamma^{100},
+\qquad
+Q^*(s,\leftarrow)=\gamma^{102}.
+$$
+
+The gap between these actions can be tiny. If the learned $Q_w(s,a)$ has approximation error larger than this gap, a greedy improvement step can easily choose the wrong action. In this kind of sparse, long-horizon problem, an on-policy method with multi-step returns or GAE can sometimes be more efficient in practice, even though it reuses less data.
+
+Many continuous-control environments have a friendlier shape than the sparse goal example. A walking robot, for instance, can receive feedback at almost every step: moving forward is good, falling is bad, and using too much torque can be penalized. Locomotion is the standard example of this pattern. When rewards are dense, one-step targets already carry useful information, and the $Q(s,a)$ surface is often smooth enough that an approximate improvement step can help even if the critic is not perfect.
+
+So the final question is precise: can we keep off-policy replay and $Q$-learning-style evaluation, but replace the exact greedy step with a differentiable actor for continuous actions? DDPG is the first answer.
+
+## Where the Next Methods Fit
+
+The final map is:
+
+| On-policy policy-based branch                                               | Off-policy policy-based branch                                                       |
+| --------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| Uses REINFORCE-style log-derivative updates.                                | Uses pathwise gradients (Reparameterization trick) when the actor is differentiable. |
+| Samples fresh states from $\rho^{\pi_\theta}$.                              | Samples states from a replay buffer $\mathcal{D}$.                                   |
+| Can use $n$-step returns, Monte Carlo returns, and GAE.                     | Usually uses one-step Bellman targets.                                               |
+| Can train a state-value critic $V_w(s)$ and build advantages from rollouts. | Needs an action-value critic $Q_w(s,a)$ to score candidate actions.                  |
+| Good when multi-step trajectory information matters more than sample reuse. | Good when replay helps and one-step $Q$ targets are informative.                     |
+
+The next chapters use this framework in three different ways. DDPG is the simplest entry point: it combines a deterministic actor $\mu_\theta(s)$ with a learned $Q_w(s,a)$ critic, a replay buffer, and target networks. TD3 keeps the same deterministic actor-critic structure, but makes the critic side safer with two $Q$ critics and a more conservative update schedule. SAC keeps the replay-buffer $Q$-critic idea, but returns to a stochastic Gaussian actor and adds entropy to the objective.
+
+The branch grows in a clear order: DDPG builds the basic off-policy actor-critic template, TD3 stabilizes it, and SAC makes it stochastic and entropy-seeking.
+
+## What Comes Next
+
+The next chapter turns this framework into the concrete DDPG algorithm. It shows how a deterministic actor $\mu_\theta(s)$ follows the critic's action gradient, how replay gives sample reuse, and why target networks are needed to keep the bootstrap target stable.

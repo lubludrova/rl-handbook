@@ -1,0 +1,225 @@
+---
+title: Actor-Critic, A2C and A3C
+description: From REINFORCE with baseline to a bootstrapped critic. One-step and n-step advantages, A2C, and A3C.
+---
+
+> **Abstract.** REINFORCE estimates the policy gradient with Monte Carlo returns. A learned value function can reduce variance as a baseline, but the update still waits for the rest of the episode. Actor-critic methods take the next step: the value function becomes a critic that bootstraps the learning signal, so the actor can update from TD-style advantages. A2C is the clean synchronous version of this idea; A3C is the further asynchronous version that made deep on-policy actor-critic practical.
+
+The previous chapter defined the true advantage as
+
+$$
+A^\pi(s,a) = Q^\pi(s,a) - V^\pi(s).
+$$
+
+This is the quantity we want in the policy-gradient update. Positive advantage means that the action was better than the policy's usual behavior in that state; negative advantage means worse. In an algorithm, we do not know $Q^\pi(S_t,A_t)$ or $V^\pi(S_t)$ exactly. REINFORCE estimates the $Q^\pi$ part with the sampled return $G_t$, because the return after taking $A_t$ in $S_t$ is an unbiased sample of the action value:
+
+$$
+\mathbb{E}_\pi[G_t \mid S_t,A_t] = Q^\pi(S_t,A_t).
+$$
+
+If we also train a learned value baseline $V_w(S_t)$, we subtract it from that sampled return before updating the policy so that we achieve Advantage form. This is still a Monte Carlo policy-gradient method. The return $G_t$ is computed from rewards observed later in the same episode:
+
+$$
+G_t = R_{t+1} + \gamma R_{t+2} + \gamma^2 R_{t+3} + \cdots.
+$$
+
+The value function is only subtracted after the return has been observed. It reduces variance, but it does not help build the target itself. Long episodes still produce noisy learning signals, and the update for an early action still depends on many later random events.
+
+Actor-critic methods change that role. The value function stops being only a baseline and becomes a **critic**: a learned estimate used to bootstrap the actor's training signal.
+
+## From Baseline to Critic
+
+The remaining question is how to move from "sample the whole future return, then subtract a baseline" to a bootstrapped critic. Actor-critic replaces the full future return $G_t$ with a one-step target:
+
+$$
+y_t = R_{t+1} + \gamma V_w(S_{t+1}).
+$$
+
+If $S_{t+1}$ is terminal, the bootstrap term is zero. The corresponding advantage estimate is
+
+$$
+\hat A_t
+=
+y_t - V_w(S_t)
+=
+R_{t+1} + \gamma V_w(S_{t+1}) - V_w(S_t).
+$$
+
+This quantity is the TD residual, often written as
+
+$$
+\delta_t = R_{t+1} + \gamma V_w(S_{t+1}) - V_w(S_t).
+$$
+
+The interpretation is direct. The critic predicted that state $S_t$ was worth $V_w(S_t)$. After taking action $A_t$, the agent observed one reward and landed in a new state worth about $V_w(S_{t+1})$. If reward plus next value is larger than the old prediction, then the action was better than expected. If it is smaller, the action was worse than expected.
+
+This is the same bootstrapping idea used in TD prediction, now plugged into a policy-gradient update. It lowers variance because the target looks only one step ahead. It adds bias because $V_w(S_{t+1})$ may be wrong. Actor-critic methods accept this bias because the reduction in variance often makes learning much more stable.
+
+## A2C
+
+Advantage Actor-Critic, usually abbreviated **A2C**, keeps two learned objects:
+
+$$
+\pi_\theta(a \mid s)
+\qquad \text{and} \qquad
+V_w(s).
+$$
+
+The **actor** is the policy $\pi_\theta$. It chooses actions and is the object we ultimately want to improve. The **critic** is the value function $V_w$. It evaluates the actor's behavior and supplies the advantage estimate used in the actor update.
+
+For one transition, A2C forms the value target
+
+$$
+y_t = R_{t+1} + \gamma V_w(S_{t+1}),
+$$
+
+and the advantage estimate
+
+$$
+\hat A_t = y_t - V_w(S_t).
+$$
+
+The actor then uses the same score-function shape as REINFORCE, but with this bootstrapped advantage:
+
+$$
+\nabla_\theta J_{\text{A2C}}(\theta)
+\approx
+\mathbb{E}_{S_t,A_t \sim \pi_\theta}
+\left[
+\nabla_\theta \log \pi_\theta(A_t \mid S_t)\,\hat A_t
+\right].
+$$
+
+This has the same shape as the REINFORCE update. The score term says how to make the sampled action more likely, and $\hat A_t$ supplies the weight. When $\hat A_t > 0$, gradient ascent increases the log-probability of the sampled action. When $\hat A_t < 0$, it decreases it.
+
+On a finite rollout batch of $N$ sampled transitions, the expectation is estimated by an average:
+
+$$
+\nabla_\theta J_{\text{A2C}}(\theta)
+\approx
+\frac{1}{N}
+\sum_{i=1}^{N}
+\nabla_\theta \log \pi_\theta(A_i \mid S_i)\,\hat A_i.
+$$
+
+The critic is trained by regression onto the same bootstrap target:
+
+$$
+L_{\text{critic}}
+=
+\left(V_w(S_t) - y_t\right)^2.
+$$
+
+For a rollout batch, this is usually averaged over the same sampled transitions:
+
+$$
+L_{\text{critic}}(w)
+=
+\frac{1}{N}
+\sum_{i=1}^{N}
+\left(V_w(S_i) - y_i\right)^2.
+$$
+
+Together, the actor ascends the advantage-weighted policy objective, while the critic descends the value regression error. Implementations often combine the negative actor objective and the critic error into one scalar loss for automatic differentiation, but conceptually the two terms are doing different jobs.
+
+An A2C training loop is short:
+
+```
+initialize actor pi_theta and critic V_w
+
+repeat:
+    collect a fresh rollout using pi_theta
+    compute bootstrap targets y_t
+    compute advantages A_hat_t = y_t - V_w(S_t)
+    update the actor with -A_hat_t log pi_theta(A_t | S_t)
+    update the critic with squared error to y_t
+```
+
+The word "fresh" matters. A2C is **on-policy**. The rollout must come from the current actor, or from a very recent copy of it. There is no replay buffer here. Once the actor changes, old rollouts no longer match the distribution assumed by the policy-gradient update.
+
+There is a practical problem hidden in this loop. Consecutive transitions from one environment are highly related: $S_{t+1}$ is produced directly from $S_t$ and $A_t$, and the next few states often look similar. If the learner updates from one uninterrupted trajectory, the whole gradient can be dominated by one local slice of experience. DQN handled a related problem with a replay buffer, but that tool does not fit A2C because A2C is an on-policy algorithm.
+
+A2C makes this problem explicit because the update is **synchronous**. Several environment copies run the current policy for a short time, then all workers stop and their transitions are stacked into one batch. The actor and critic losses are averaged over that batch, and only then does the learner update the shared parameters. These samples are still on-policy data, not replay: they are fresh transitions from the current policy, used once or a small number of times and then discarded.
+
+<Callout title="Where A2C came from" type="info">
+A3C, the asynchronous version we discuss below, was introduced as a paper by Mnih et al. in 2016. A2C is better understood as the synchronous implementation pattern that followed it. In OpenAI Baselines, A2C was released as a synchronous variant of A3C: each actor runs a fixed-length segment, the learner waits for all actors, averages the update over them, and then applies one step. The point was to test whether A3C's asynchrony was essential. OpenAI found that the synchronous version did not lose performance compared with their asynchronous A3C implementation.
+</Callout>
+
+## From One Step to n Steps
+
+One-step A2C is easy to understand, but the target can be too short-sighted. Suppose the agent is in a sparse-reward task. It takes a useful action at $S_0$, but the environment gives no immediate reward:
+
+$$
+R_1 = 0,\quad R_2 = 0,\quad R_3 = 0,\quad R_4 = 0,\quad R_5 = 1.
+$$
+
+The one-step target for the first transition is
+
+$$
+y_0 = R_1 + \gamma V_w(S_1).
+$$
+
+At the beginning of training, $R_1=0$ and the critic may not yet know that $S_1$ eventually leads to reward, so $V_w(S_1)$ can also be close to zero. Then the advantage for the useful action at $S_0$ is close to zero, even though that action started the path toward $R_5=1$. The reward is not lost. It just has to travel backward through the critic one update at a time: first from $S_4$ to $S_3$, then from $S_3$ to $S_2$, and so on. That is why one-step bootstrapping has low variance but can propagate sparse rewards slowly.
+
+The natural extension is an $n$-step target. Instead of bootstrapping after one reward, we collect several real rewards and then bootstrap:
+
+$$
+y_t^{(n)}
+=
+\sum_{k=0}^{n-1} \gamma^k R_{t+k+1}
++ \gamma^n V_w(S_{t+n}).
+$$
+
+The corresponding advantage estimate is
+
+$$
+\hat A_t^{(n)}
+=
+y_t^{(n)} - V_w(S_t).
+$$
+
+This single formula connects the extremes:
+
+- $n=1$ gives the one-step TD residual used above.
+- Larger $n$ uses more real rewards before trusting the critic.
+- In the limit of a full episode, the estimate approaches the Monte Carlo advantage $G_t - V_w(S_t)$.
+
+So $n$ is a bias-variance knob. Small $n$ gives lower variance but more dependence on the critic. Large $n$ gives less bootstrap bias but more trajectory noise. A3C used short rollout segments, commonly capped at $t_{\max}=5$, which sits between one-step TD and full Monte Carlo.
+
+This is also the point where Generalized Advantage Estimation will later fit. GAE is a $\lambda$-weighted mixture of these multi-step advantage estimates. We do not need its full formula yet; the important idea is already here: actor-critic methods can choose how many real rewards to use before bootstrapping from $V_w$.
+
+## A3C
+
+Historically, **A3C** came before A2C. The name stands for Asynchronous Advantage Actor-Critic. Mnih et al. introduced it in 2016 as a way to train deep on-policy agents without the replay buffer used by DQN.
+
+A3C uses many workers as its source of diversity. Each worker has its own environment copy and a local copy of the actor-critic network. A worker would:
+
+1. synchronize its local parameters with the shared network,
+2. run the policy for a short rollout,
+3. compute $n$-step advantages and value losses,
+4. apply its gradients to the shared parameters asynchronously.
+
+The workers do not wait for each other. Their updates land in whatever order they finish. This is less tidy than a synchronous batch update, but it was effective: different workers are usually in different parts of their environments, so their gradients are less correlated than samples from one long trajectory.
+
+The A3C actor update has the same basic form as A2C. Each worker estimates the policy gradient on its own short rollout segment:
+
+$$
+\nabla_\theta J_{\text{A3C}}(\theta)
+\approx
+\frac{1}{N}
+\sum_{i=1}^{N}
+\nabla_\theta \log \pi_\theta(A_i \mid S_i)\,\hat A_i^{(n)}.
+$$
+
+This is the same estimator as in A2C, but computed on one worker's rollout segment. Here $N$ is the number of sampled transitions in that segment. The critic regresses toward the same $n$-step target. The novelty was not a new policy-gradient theorem. It was the training architecture: parallel actor-learners gave on-policy deep RL enough decorrelation to work at scale.
+
+Modern implementations often prefer A2C-style synchronization. A2C collects rollouts from multiple environments, waits until the batch is complete, then applies one normal batched update. This is easier to reproduce, easier to debug, and fits GPUs or accelerators better and also solves the problem of correlated samples. Conceptually, though, A2C and A3C share the same core: an actor trained by advantage-weighted log-probabilities and a critic trained by bootstrapped value regression.
+
+## Full code
+
+The complete runnable example, including CartPole rollouts, bootstrapped n-step advantages, and the A2C loss:
+[`actor-critic-a2c-a3c.py`](https://github.com/lubludrova/rl-handbook/blob/main/content/docs/02-on-policy-policy-based/actor-critic-a2c-a3c/actor-critic-a2c-a3c.py)
+
+## What Comes Next
+
+Actor-critic fixes one weakness of REINFORCE: the learning signal no longer has to be a full Monte Carlo return. The critic gives a lower-variance advantage estimate, and $n$-step targets choose how many real rewards to use before bootstrapping. What A2C and A3C do not control is the size of the policy change. In on-policy learning, one bad update can poison the next batch because that batch is collected by the updated policy. The next chapter studies this step-size problem: TRPO keeps the actor-critic ingredients, but constrains the new policy to stay near the old one.

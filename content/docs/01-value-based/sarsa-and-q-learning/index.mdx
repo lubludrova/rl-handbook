@@ -1,0 +1,240 @@
+---
+title: Sarsa and Q-Learning
+description: "Model-free TD control with Sarsa, Q-learning, epsilon-greedy behavior, and the on-policy/off-policy distinction."
+---
+
+> **Abstract.** The previous chapter estimated the value of a fixed policy. Sarsa and Q-learning add control: the policy changes as the action-value estimates improve. Both are tabular TD control methods, but Sarsa learns from the next action actually taken, while Q-learning learns from the greedy next action.
+
+Monte Carlo and TD prediction asked a fixed-policy question: if the agent keeps following $\pi$, what value should we assign to each state? Control asks a different question. The agent must use experience not only to estimate values, but also to improve the behavior that generates future experience.
+
+This is the model-free version of generalized policy iteration. Evaluation and improvement still chase each other, as they did in dynamic programming, but there is no environment model to sweep over. The only data available is the stream of sampled transitions:
+
+$$
+(S_t, A_t, R_{t+1}, S_{t+1}).
+$$
+
+- $S_t$ — the state before the action.
+- $A_t$ — the action chosen in that state.
+- $R_{t+1}$ — the reward received after taking the action.
+- $S_{t+1}$ — the next state reached by the environment.
+
+The chapter focuses on the two classic one-step TD control algorithms: **Sarsa** and **Q-learning**.
+
+## Why Control Learns $Q$, Not Just $V$
+
+A state-value estimate $V(s)$ tells us how good it is to be in state $s$ under some policy. That is enough for prediction, but not enough for model-free control. To improve a policy using only $V$, the agent would have to ask: if I take action $a$ from state $s$, which next states might the environment send me to, what rewards might I receive, and how valuable are those next states? In other words, it would need to compare actions by looking one step ahead through the environment model:
+
+$$
+\sum_{s',r} p(s', r \mid s,a)\left[r + \gamma V(s')\right].
+$$
+
+This expression depends on $p(s', r \mid s,a)$, the one-step dynamics of the environment. Model-free learning does not have that table; it only sees sampled outcomes after trying actions. Without the model, the agent cannot evaluate all candidate actions by summing over their possible next states.
+
+An action-value estimate $Q(s,a)$ solves this problem by moving the action choice inside the value table. Instead of asking only how good a state is, it asks how good it is to take a particular action in that state and then continue from there.
+
+The ideal object is the optimal action-value function from the MDP chapter:
+
+$$
+q_*(s,a) = \sum_{s', r} p(s', r \mid s, a) \left[r + \gamma \max_{a'} q_*(s',a')\right].
+$$
+
+Lowercase $q_*$ denotes the true optimal action-value function. Uppercase $Q$ denotes the table the agent is currently learning from samples. Q-learning tries to move this table toward $q_*$; Sarsa moves it toward the action values of the current behavior policy. In both cases, the reason to learn $Q(s,a)$ is the same: once actions have values attached to them directly, policy improvement no longer needs a model-based lookahead. The agent can simply compare the learned values for the available actions and choose the largest one:
+
+$$
+\pi(s) = \arg\max_a Q(s,a).
+$$
+
+No transition probabilities are needed. This is why Sarsa and Q-learning update a table indexed by state-action pairs rather than a table indexed only by states.
+
+## Generalized Policy Iteration From Samples
+
+Sarsa and Q-learning both interleave two processes:
+
+1. **Evaluation:** update one entry of the current $Q$ table from a sampled transition.
+2. **Improvement:** choose future actions using a policy that is greedy or nearly greedy with respect to that table.
+
+The usual behavior policy is **$\epsilon$-greedy**, the same exploration rule introduced in the bandit chapter. With probability $1-\epsilon$, the agent chooses an action with maximal $Q(s,a)$. With probability $\epsilon$, it chooses uniformly at random.
+
+More explicitly, for a finite action set $\mathcal{A}$:
+
+$$
+\pi(a \mid s) =
+\begin{cases}
+1 - \epsilon + \epsilon / |\mathcal{A}|, & \text{if } a = \arg\max_{a'} Q(s,a'), \\
+\epsilon / |\mathcal{A}|, & \text{otherwise.}
+\end{cases}
+$$
+
+This rule is deliberately simple. It makes the agent exploit its current value estimates most of the time, while still giving every action nonzero probability. In tabular control, that continuing exploration is the practical way to make sure state-action pairs keep receiving updates.
+
+## Sarsa: Learning the Value of the Behavior Policy
+
+Sarsa is named after the five quantities used in one update:
+
+$$
+(S_t, A_t, R_{t+1}, S_{t+1}, A_{t+1}).
+$$
+
+The agent starts in $S_t$, takes $A_t$, receives $R_{t+1}$, arrives in $S_{t+1}$, and then selects the next action $A_{t+1}$ from its current behavior policy. Only after that next action is known does Sarsa form its target:
+
+$$
+Q(S_t,A_t) \leftarrow Q(S_t,A_t) + \alpha \left[R_{t+1} + \gamma Q(S_{t+1}, A_{t+1}) - Q(S_t,A_t)\right].
+$$
+
+The bracketed term is a TD error for action values: it measures the gap between the old estimate $Q(S_t,A_t)$ and the new one-step target. That target is the observed reward plus the discounted estimate of the state-action pair the agent actually moved into, $Q(S_{t+1}, A_{t+1})$.
+
+That last phrase is the key. If $A_{t+1}$ came from an $\epsilon$-greedy policy, then Sarsa's target includes the consequences of $\epsilon$-greedy behavior: sometimes the next action is exploratory, and the update learns from that possibility. It does not pretend the agent will be perfectly greedy on the next step. It evaluates and improves the same policy that is collecting data, so Sarsa is **on-policy**.
+
+The learning loop has a small but important shape: choose the first action before the loop; after each transition, choose the next action; update using both actions; then shift forward. In the runnable example, the Sarsa update is:
+
+```python
+def sarsa_update(
+    q: np.ndarray,
+    state: int,
+    action: int,
+    reward: float,
+    next_state: int,
+    next_action: int,
+    done: bool,
+    alpha: float,
+    gamma: float,
+) -> None:
+    """Apply the on-policy one-step Sarsa update in place."""
+    next_value = 0.0 if done else q[next_state, next_action]
+    target = reward + gamma * next_value
+    q[state, action] += alpha * (target - q[state, action])
+```
+
+## Q-Learning: Learning the Value of the Greedy Policy
+
+Q-learning changes only the bootstrap term:
+
+$$
+Q(S_t,A_t) \leftarrow Q(S_t,A_t) + \alpha \left[R_{t+1} + \gamma \max_{a'} Q(S_{t+1}, a') - Q(S_t,A_t)\right].
+$$
+
+Instead of using the next action actually sampled by the behavior policy, Q-learning asks a counterfactual question: if the agent were greedy from $S_{t+1}$, what value would it get? The answer is the maximum action value in the next state.
+
+That $\max_{a'}$ is what makes Q-learning **off-policy**. The behavior policy can be exploratory, stale, or otherwise different from the greedy policy being learned. The update still moves $Q$ toward the action-value function of the greedy target policy because the sampled next action does not appear in the target.
+
+```python
+def q_learning_update(
+    q: np.ndarray,
+    state: int,
+    action: int,
+    reward: float,
+    next_state: int,
+    done: bool,
+    alpha: float,
+    gamma: float,
+) -> None:
+    """Apply the off-policy one-step Q-learning update in place."""
+    next_value = 0.0 if done else np.max(q[next_state])
+    target = reward + gamma * next_value
+    q[state, action] += alpha * (target - q[state, action])
+```
+
+Compare the two targets side by side:
+
+$$
+\begin{aligned}
+\text{Sarsa target} &= R_{t+1} + \gamma Q(S_{t+1}, A_{t+1}), \\
+\text{Q-learning target} &= R_{t+1} + \gamma \max_{a'} Q(S_{t+1}, a').
+\end{aligned}
+$$
+
+Everything else is shared: both methods sample real transitions, bootstrap after one step, and adjust one table entry by a learning rate $\alpha$.
+
+The behavior policy generates experience. The target policy is the policy whose value is being learned. In Sarsa they are the same current exploratory policy. In Q-learning the behavior can be $\epsilon$-greedy, but the target is the greedy policy induced by $Q$.
+
+## Convergence and Exploration
+
+In the tabular case, Q-learning converges to $Q^*$ under the standard conditions: every state-action pair must keep being visited, and the learning rates must decay appropriately. Watkins and Dayan proved this result in 1992. For this handbook chapter, the important point is the statement, not the proof.
+
+In practice, this is usually implemented as **decaying $\epsilon$-greedy** rather than a fixed exploration rate. Early in training, $\epsilon$ is kept high so that many actions are tried. As the table becomes more reliable, $\epsilon$ is annealed toward a small floor, making the behavior nearly greedy while still leaving some chance of exploration. If $\epsilon$ falls too quickly, the agent may stop updating actions that only looked bad because of early noise.
+
+For Sarsa, the $\epsilon$ schedule also changes what policy is being learned. If $\epsilon$ stays fixed above zero, the behavior policy always remains partly random, so Sarsa learns action values for that partly exploratory policy. If $\epsilon$ decays slowly toward zero, the behavior policy becomes closer and closer to greedy. With enough visits to the relevant state-action pairs along the way, Sarsa can then approach the greedy optimal policy rather than the permanently exploratory one.
+
+## Expected Sarsa and $n$-Step Sarsa
+
+Sarsa samples one next action $A_{t+1}$ and uses its value. **Expected Sarsa** replaces that sampled value with an expectation under the current policy:
+
+$$
+Q(S_t,A_t) \leftarrow Q(S_t,A_t) + \alpha \left[R_{t+1} + \gamma \sum_{a'} \pi(a' \mid S_{t+1}) Q(S_{t+1},a') - Q(S_t,A_t)\right].
+$$
+
+For an $\epsilon$-greedy policy, this expectation averages the greedy action and the exploratory actions according to their probabilities. The update is still tied to the behavior policy, but it removes the extra randomness of sampling a single $A_{t+1}$. That is why Expected Sarsa is often described as a lower-variance variant.
+
+**$n$-step Sarsa** extends the one-step target across several sampled rewards before bootstrapping:
+
+$$
+G_{t:t+n} = R_{t+1} + \gamma R_{t+2} + \cdots + \gamma^{n-1}R_{t+n} + \gamma^n Q(S_{t+n}, A_{t+n}).
+$$
+
+When $n=1$, this is ordinary Sarsa. As $n$ grows, the target uses more real rewards before it relies on the current table again. This is the control-side version of the $n$-step bridge from the previous chapter, and the same idea later reappears inside deep value-based agents.
+
+## Experiment: Cliff Walking
+
+The chapter's experiment is the **Cliff Walking** task, implemented with Gymnasium as `CliffWalking-v1`. The grid has a start cell at the lower left, a goal cell at the lower right, and cliff cells between them. A normal step gives reward $-1$. Stepping into the cliff gives reward $-100$ and sends the agent back to the start.
+
+<img
+  src="/docs-assets/01-value-based/sarsa-and-q-learning/cliff-walking-gridworld.gif"
+  alt="Cliff Walking environment: the agent starts at the bottom-left, the goal is at the bottom-right, and the cliff lies between them."
+  style={{ maxWidth: '70%', margin: '2rem auto', display: 'block' }}
+/>
+
+The shortest path runs along the edge of the cliff. A perfectly greedy agent can follow it safely. An $\epsilon$-greedy agent, however, sometimes takes a random action. Near the cliff, one random downward move is costly.
+
+The script trains both methods with the same hyperparameters: `500` episodes, $\alpha = 0.5$, $\gamma = 1.0$, and fixed $\epsilon = 0.1$. The code is deliberately organised so that both algorithms share the same training wrapper. The wrapper receives an episode runner, creates one $Q$ table, runs episodes, and records returns:
+
+```python
+def train_method(
+    run_episode: EpisodeRunner,
+    config: CliffWalkingConfig,
+    seed_offset: int = 0,
+) -> dict[str, np.ndarray]:
+    """Train one tabular control method on CliffWalking-v1."""
+    env = gym.make("CliffWalking-v1")
+    env.action_space.seed(config.seed + seed_offset)
+
+    n_states = int(env.observation_space.n)
+    n_actions = int(env.action_space.n)
+    q = np.zeros((n_states, n_actions))
+    returns = np.zeros(config.episodes)
+    steps = np.zeros(config.episodes, dtype=int)
+    rng = np.random.default_rng(config.seed + seed_offset)
+
+    for episode in range(config.episodes):
+        env.reset(seed=config.seed + seed_offset + episode)
+        returns[episode], steps[episode] = run_episode(env, q, config, rng)
+
+    env.close()
+    return {"q": q, "returns": returns, "steps": steps}
+```
+
+The comparison is then just two calls to the same wrapper with different episode functions:
+
+```python
+def train(config: CliffWalkingConfig) -> dict[str, dict[str, np.ndarray]]:
+    """Train Sarsa and Q-learning with the same hyperparameters."""
+    return {
+        "Sarsa": train_method(run_sarsa_episode, config, seed_offset=0),
+        "Q-learning": train_method(run_q_learning_episode, config, seed_offset=10_000),
+    }
+```
+
+ The environment, table shape, learning rate, discount, exploration rate, and number of episodes are shared between algorithms. The only algorithmic difference is inside the episode runner: Sarsa calls the update that uses the sampled next action, while Q-learning calls the update that uses the greedy next-state value.
+
+After training, the script prints the greedy policy induced by each learned table and plots a moving average of episode returns. Sarsa sees exploration risk in its target. When it stands near the cliff, the next action $A_{t+1}$ is sampled from the same $\epsilon$-greedy behavior that will occasionally step into danger. The learned values therefore include the cost of exploration. Sarsa tends to prefer a safer path one row above the cliff, even though that path is longer.
+
+Q-learning learns a different object. Its target uses $\max_{a'} Q(S_{t+1},a')$, so it evaluates the greedy continuation rather than the exploratory continuation. It can learn that the cliff-edge path is optimal for a greedy policy. During training, the behavior policy may still fall into the cliff because of random exploratory moves, but the values being learned point toward the shortest greedy path.
+
+The learning curve shows the same distinction from another angle. Sarsa's returns are usually steadier because its learned policy accounts for the exploratory moves it will actually take. Q-learning can have sharper drops during training: the greedy policy may run along the cliff edge, while the behavior policy still injects random exploratory actions. Sarsa asks, "what happened next under the policy I actually followed?" Q-learning asks, "what would the greedy policy do next?" That single target difference explains the safe-path vs. cliff-edge behavior in Cliff Walking.
+## Full code
+
+The complete runnable example, including Cliff Walking, Sarsa, Q-learning, and learning-curve plotting:
+[`sarsa-and-q-learning.py`](https://github.com/lubludrova/rl-handbook/blob/main/content/docs/01-value-based/sarsa-and-q-learning/sarsa-and-q-learning.py)
+
+## What Comes Next
+
+Tabular Sarsa and Q-learning assume that a separate entry can be stored for every state-action pair. That works for small grids, but not for large observation spaces. The next chapter replaces the table with a parametric action-value function $Q_\theta(s,a)$. That change leads to DQN: Q-learning with a neural network, plus the stability tricks needed when off-policy bootstrapping is combined with function approximation.

@@ -1,0 +1,240 @@
+@import 'tailwindcss';
+@import 'fumadocs-ui/css/neutral.css';
+@import 'fumadocs-ui/css/preset.css';
+
+@theme {
+  /* Typography */
+  --font-heading: var(--font-heading), 'IBM Plex Mono', monospace;
+  --font-body: var(--font-body), 'Inter', sans-serif;
+  --font-code: var(--font-code), 'JetBrains Mono', monospace;
+
+  /* Surface colors */
+  --color-surface: #FFFFFF;
+  --color-surface-subtle: #F8F9FA;
+  --color-surface-muted: #F1F3F5;
+  --color-code-bg: #FCFCFC;
+
+  /* Ink colors */
+  --color-ink: #0A0A0A;
+  --color-ink-secondary: #333333;
+  --color-ink-muted: #555555;
+  --color-ink-faint: #888888;
+
+  /* Line colors */
+  --color-line: #E5E7EB;
+  --color-line-strong: #D1D5DB;
+}
+
+/* ===== Smooth scroll ===== */
+html {
+  scroll-behavior: smooth;
+}
+
+/* ===== Uniform navbar background ===== */
+#nd-nav > div {
+  background-color: var(--color-fd-background) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  border-bottom-color: transparent !important;
+}
+
+/* Navbar children — full width, no centering constraint */
+#nd-nav > div > * {
+  max-width: 100% !important;
+}
+
+/* Hide ⌘K shortcut badges from search bar */
+#nd-nav [data-search-full] .ms-auto {
+  display: none;
+}
+
+/* ===== Docs layout ===== */
+
+/* ===== Landing page styles ===== */
+
+.landing-page {
+  position: relative;
+  min-height: 100vh;
+  background-color: var(--color-fd-background);
+  color: var(--color-fd-foreground);
+  isolation: isolate;
+}
+
+.landing-page::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  opacity: 0.03;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+  pointer-events: none;
+  z-index: 0;
+}
+
+.landing-page > section,
+.landing-page > footer {
+  position: relative;
+  z-index: 1;
+  background-color: transparent;
+}
+
+.landing-page .grain-overlay::after {
+  display: none;
+}
+
+/* Grain overlay */
+.grain-overlay::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  opacity: 0.03;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* CTA button */
+.cta-btn {
+  transition:
+    transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1),
+    background-color 0.2s ease,
+    color 0.2s ease,
+    box-shadow 0.2s ease;
+}
+.cta-btn:hover {
+  transform: scale(1.04);
+  background-color: var(--color-fd-background) !important;
+  color: var(--color-fd-foreground) !important;
+  box-shadow: 0 0 0 2px var(--color-fd-foreground);
+}
+.cta-btn:active {
+  transform: scale(0.98);
+}
+.cta-btn:focus-visible {
+  outline: 2px solid var(--color-fd-foreground);
+  outline-offset: 3px;
+}
+
+/* Copy button */
+.copy-btn {
+  transition: opacity 0.15s ease, background-color 0.15s ease;
+}
+.copy-btn:hover {
+  background-color: var(--color-fd-accent);
+}
+.copy-btn:focus-visible {
+  outline: 2px solid var(--color-fd-foreground);
+  outline-offset: 2px;
+}
+
+/* Icon links */
+.icon-link {
+  transition: opacity 0.15s ease, transform 0.15s ease, color 0.15s ease;
+}
+.icon-link:hover {
+  opacity: 0.6;
+  transform: translateY(-1px);
+  color: var(--color-fd-foreground);
+}
+.icon-link:focus-visible {
+  outline: 2px solid var(--color-fd-foreground);
+  outline-offset: 3px;
+}
+
+/* Author avatar — blend white bg with page */
+.author-avatar {
+  mix-blend-mode: multiply;
+}
+.dark .author-avatar {
+  mix-blend-mode: screen;
+}
+
+/* ===== Sidebar styles ===== */
+
+/* Fill sidebar grid column with matching background for full content height (desktop only) */
+@media (min-width: 768px) {
+  #nd-docs-layout::before {
+    content: '';
+    grid-area: sidebar;
+    background-color: var(--color-fd-card);
+    border-inline-end: 1px solid var(--color-fd-border);
+  }
+
+  /* Hide the background column when sidebar is collapsed */
+  #nd-docs-layout[data-sidebar-collapsed="true"]::before {
+    display: none;
+  }
+}
+
+/* Hide sidebar footer (GitHub icon, theme toggle — already in navbar) */
+#nd-sidebar > .border-t {
+  display: none !important;
+}
+
+/* Timeline */
+.timeline-dot {
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+.timeline-entry:hover .timeline-dot {
+  transform: scale(1.3);
+  box-shadow: 0 0 0 3px var(--color-fd-border);
+}
+
+/* ===== Print styles ===== */
+@media print {
+  /* Hide non-content UI */
+  #nd-nav,
+  #nd-sidebar,
+  .reading-progress,
+  .copy-btn,
+  footer,
+  .cta-btn {
+    display: none !important;
+  }
+
+  /* Ensure content is full width */
+  #nd-docs-layout {
+    display: block !important;
+  }
+
+  /* Improve typography for print */
+  body {
+    font-size: 11pt;
+    line-height: 1.6;
+    color: #000 !important;
+    background: #fff !important;
+  }
+
+  /* Code blocks — preserve but reduce bg */
+  pre,
+  code {
+    background: #f5f5f5 !important;
+    border: 1px solid #ddd !important;
+    font-size: 9pt !important;
+  }
+
+  /* Formulas */
+  .katex {
+    font-size: 10pt !important;
+  }
+
+  /* Links — show URL after text */
+  a[href]::after {
+    content: ' (' attr(href) ')';
+    font-size: 8pt;
+    color: #555;
+  }
+
+  /* But not for internal anchors */
+  a[href^='#']::after {
+    content: '';
+  }
+
+  /* Page breaks */
+  h1, h2, h3 {
+    page-break-after: avoid;
+  }
+
+  pre, table, figure {
+    page-break-inside: avoid;
+  }
+}

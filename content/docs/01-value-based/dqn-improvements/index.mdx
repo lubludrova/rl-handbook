@@ -1,0 +1,191 @@
+---
+title: DQN Improvements
+description: "Understand how Double DQN, Dueling DQN, Prioritized Replay, and Rainbow fix specific weaknesses of vanilla DQN."
+---
+
+> **Abstract.** Vanilla DQN made neural Q-learning work, but it still had clear failure modes: overestimated values, wasted network capacity, uniform replay that ignored informative transitions, weak exploration, and scalar targets that collapsed return uncertainty. The main DQN improvements are best read as targeted repairs. Double DQN fixes max bias, Dueling DQN changes the representation, Prioritized Experience Replay changes the sampling distribution, and Rainbow combines several fixes into one agent.
+
+The DQN chapter introduced the base recipe: a neural Q-function $Q_\theta$, a replay buffer $\mathcal{D}$, and a target network $Q_{\theta^-}$. The target was:
+
+$$
+y = r + \gamma \max_{a'} Q_{\theta^-}(s',a')
+$$
+
+This chapter keeps that recipe in view and asks what still goes wrong. Each improvement below changes one part of the pipeline: the target, the network head, the replay sampler, the return target, the exploration mechanism, or the predicted object itself.
+
+## Overestimation Bias
+
+The vanilla DQN target uses a max over noisy value estimates. That max is optimistic: if several actions have uncertain estimates, the largest one is often large partly because of estimation error, not because the action is truly best.
+
+The issue is not that DQN is "too hopeful" in a vague sense. The problem is mechanical. The same numbers are used twice: first to select the best-looking action, and then to evaluate that selected action. When all estimates contain noise, the selected action is disproportionately likely to be the one whose noise happened to be positive.
+
+In expectation, this creates an upward bias:
+
+$$
+\mathbb{E}\left[\max_a \hat Q(s,a)\right] \geq \max_a \mathbb{E}[\hat Q(s,a)]
+$$
+
+This is not just a cosmetic value-scale problem. Because DQN bootstraps, an overestimated target can be propagated into earlier states. If the policy then acts greedily with respect to those estimates, it may chase actions that only looked good because of noise.
+
+## Double DQN
+
+**Double DQN** fixes the bias by decoupling action selection from action evaluation. The online network chooses the next action:
+
+$$
+a^* = \arg\max_{a'} Q_\theta(s',a')
+$$
+
+The target network evaluates that chosen action:
+
+$$
+y = r + \gamma Q_{\theta^-}(s', a^*)
+$$
+
+Written in one line:
+
+$$
+y = r + \gamma Q_{\theta^-}\left(s', \arg\max_{a'} Q_\theta(s',a')\right)
+$$
+
+The target network is not a fully independent estimator; it is a stale copy of the online network. But it is different enough to reduce the select-and-evaluate-with-the-same-noise problem. The change is small, but it directly targets the max-bias failure mode.
+
+This is why Double DQN is a minimal extension rather than a new architecture. DQN already has two networks: the online network $Q_\theta$ and the target network $Q_{\theta^-}$. Double DQN only changes how they are used. The online network is trusted to choose the greedy action; the target network is trusted to score that action.
+
+```python
+def double_dqn_targets(
+    rewards: torch.Tensor,
+    dones: torch.Tensor,
+    next_q_online: torch.Tensor,
+    next_q_target: torch.Tensor,
+    gamma: float,
+) -> torch.Tensor:
+    """Double DQN target: online net selects the greedy action, target net evaluates."""
+    with torch.no_grad():
+        next_actions = next_q_online.argmax(dim=1, keepdim=True)
+        next_values = next_q_target.gather(dim=1, index=next_actions).squeeze(1)
+        targets = rewards + gamma * (1.0 - dones) * next_values
+    return targets
+```
+
+## Dueling DQN
+
+Vanilla DQN outputs one value per action, and that single stream has to carry two different things at once: how good the state itself is, and how much each action changes that. It helps to write them down separately. The state value
+
+$$
+V(s) = \mathbb{E}_{a \sim \pi}[Q(s,a)]
+$$
+
+captures the first piece, and the advantage
+
+$$
+A(s,a) = Q(s,a) - V(s)
+$$
+
+captures the second, with $Q(s,a) = V(s) + A(s,a)$ by construction.
+
+Why does the split help? A TD update on $(s,a,r,s')$ only touches the head for the action that was actually taken, so a single-stream network has to relearn "this state is valuable" once per action it ever sees in $s$. If $V(s)$ is a shared component, every transition through $s$ updates it, no matter which action was sampled. On top of that, the greedy policy depends only on differences of Q-values in the same state, and those differences are the advantages. Modeling $A(s,a)$ directly puts these small but decision-relevant gaps on their own scale instead of hiding them inside two large Q-values that mostly cancel.
+
+**Dueling DQN** turns this decomposition into an architectural choice. The network has a shared torso and two heads, one outputting $V_\theta(s)$ and one outputting $A_\theta(s,a)$ for every action. They are recombined into Q-values with the identifiability fix:
+
+$$
+Q(s,a) = V(s) + \left(A(s,a) - \frac{1}{|\mathcal{A}|}\sum_{a'} A(s,a')\right)
+$$
+
+The subtraction matters. Without it, $Q=V+A$ is underdetermined: adding a constant to $V$ and subtracting it from every advantage gives the same Q-values. Mean-subtracting the advantages pins down the decomposition enough for stable optimization.
+
+Dueling DQN does not change the Bellman target. It changes the representation so that the network can learn "how good is this state?" separately from "which action is better than the others here?"
+
+That distinction is why dueling is an architectural improvement, not an exploration or target-improvement trick. It can be combined with Double DQN and replay variants because it leaves the update rule intact.
+
+```python
+class DuelingQNetwork(nn.Module):
+    """Shared torso with V(s) and A(s, a) heads; recombined as Q = V + (A - mean A)."""
+
+    def __init__(self, state_dim: int, hidden_dim: int, n_actions: int) -> None:
+        super().__init__()
+        self.torso = nn.Sequential(
+            nn.Linear(state_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.ReLU(),
+        )
+        self.value_head = nn.Linear(hidden_dim, 1)
+        self.advantage_head = nn.Linear(hidden_dim, n_actions)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Forward pass: state -> dueling Q-values."""
+        h = self.torso(x)
+        v = self.value_head(h)
+        a = self.advantage_head(h)
+        a_centered = a - a.mean(dim=1, keepdim=True)
+        return v + a_centered
+```
+
+## Prioritized Experience Replay
+
+Uniform replay samples every stored transition with equal probability. That is simple, but it wastes updates on transitions the network already predicts well while rare surprising transitions may wait a long time to be replayed.
+
+**Prioritized Experience Replay (PER)** samples transition $i$ with probability based on its priority:
+
+$$
+P(i) = \frac{p_i^\alpha}{\sum_k p_k^\alpha}
+$$
+
+Usually $p_i$ is based on TD-error magnitude, $p_i = |\delta_i| + \epsilon$, where $\delta_i = y_i - Q_\theta(s_i, a_i)$ is the TD-error from this transition's last update. The absolute value treats over- and under-estimates as equally informative, and the small constant $\epsilon > 0$ keeps every priority strictly positive so that a transition with a momentarily zero error can still be replayed later. The exponent $\alpha$ from $P(i)$ controls how strongly prioritization is used. When $\alpha=0$, sampling is uniform. Larger $\alpha$ moves toward greedily replaying high-error transitions.
+
+The TD error is only a proxy for usefulness. A large $|\delta|$ often means the transition is informative, but it can also be large for reasons that have nothing to do with learnable signal: a stochastic environment where the same state-action pair returns different rewards, a stale priority computed with much older network weights, or a noisy bootstrap target from a still-uncertain $Q_{\theta^-}$. Pure greedy replay would keep returning to such items at the expense of the rest of the buffer. Stochastic prioritization with $\alpha < 1$ keeps every transition reachable while still favoring the ones with higher error.
+
+Prioritized sampling changes the training distribution, and that breaks an assumption baked into the standard TD update: the unbiased gradient is an expectation over uniformly drawn transitions. If we sample more often from high-error states, that expectation is no longer what we are estimating, and the value function gets pulled toward those states more than it should. Importance sampling corrects this by weighting each gradient by the inverse of how likely the sample was drawn:
+
+$$
+w_i = \left(\frac{1}{N \cdot P(i)}\right)^\beta
+$$
+
+When $\beta = 1$, the correction is exact: a transition sampled $k$ times more often than uniform contributes $1/k$ as much per update, which recovers the original uniform expectation. When $\beta = 0$, no correction is applied. PER usually anneals $\beta$ from a small value toward $1$ during training. Early on, the biased but more focused gradient learns faster; later, when value estimates approach a fixed point, asymptotic unbiasedness matters more for stable convergence. Weights are typically normalized by $\max_i w_i$ so gradient magnitudes stay bounded.
+
+## Multi-Step Targets, Noisy Nets, and Distributional RL
+
+There are also some extensions, which will be useful for the next model.
+
+**Multi-step returns** replace the one-step target with several observed rewards before bootstrapping:
+
+$$
+R_t^{(n)} + \gamma^n \max_{a'} Q(S_{t+n},a')
+$$
+
+This propagates rewards faster than a one-step target, at the cost of more variance and some off-policy bias when replay data was collected under older behavior policies.
+
+The connection to the earlier MC/TD chapter is direct: one-step DQN is close to TD(0), while multi-step DQN waits for a short sampled return before bootstrapping. Rainbow uses this to move sparse rewards backward through the replayed trajectory faster.
+
+**Noisy Nets** replace hand-designed $\epsilon$-greedy exploration with learnable parameter noise inside the network. Instead of adding random action noise at each step, the agent samples a noisy value function and acts greedily with respect to it. This can produce more temporally consistent exploration than independent random actions.
+
+**Distributional RL**, predicts the full return distribution $Z(s,a)$ rather than only its expectation $Q(s,a)=\mathbb{E}[Z(s,a)]$. The policy still acts by expected return, but the learning target contains richer information about uncertainty, multimodality, and rare outcomes. The full categorical projection machinery is out of scope for this chapter.
+
+## Rainbow
+
+**Rainbow** combines six DQN extensions:
+
+1. Double DQN
+2. Prioritized Experience Replay
+3. Dueling networks
+4. Multi-step returns
+5. Distributional RL with C51
+6. Noisy Nets
+
+The point of Rainbow is not that every component was new. The contribution was the integration and ablation: putting the main DQN improvements into one Atari agent and asking which ones still matter together.
+
+That framing matters because improvements do not necessarily add linearly. Two components can fix the same failure mode, or one component can make another less important. Rainbow is therefore best read as an ablation paper as much as an algorithm paper.
+
+The aggregate result was strong: Rainbow reached 223% median human-normalized Atari score in the no-op starts regime (each evaluation episode begins with a random number of "do nothing" actions, up to 30, so the agent cannot memorize a single deterministic opening). The ablation was just as important. Prioritized replay, multi-step returns, and distributional RL were the largest contributors. Noisy Nets helped more modestly. Double DQN and Dueling DQN did not produce a significant aggregate effect inside the full Rainbow agent, possibly because the bounded distributional support already reduced overestimation and the distributional head partly absorbed the representational benefit of dueling.
+
+## Full code
+
+The complete runnable example trains Double DQN with a dueling head on CartPole-v1, layered on top of the vanilla DQN setup from the previous chapter. Replay is uniform. Prioritized Experience Replay, multi-step returns, Noisy Nets, and distributional RL are discussed in the chapter but not implemented in this file.
+
+[`dqn-improvements.py`](https://github.com/lubludrova/rl-handbook/blob/main/content/docs/01-value-based/dqn-improvements/dqn-improvements.py)
+
+For a full integrated Rainbow agent (all six components, Atari-scale, with prioritized replay, multi-step returns, distributional C51, and noisy networks fully wired together) the cleanest reference implementation is Kai Arulkumaran's [`Kaixhin/Rainbow`](https://github.com/Kaixhin/Rainbow). It is research-grade rather than pedagogical, but it is the standard pointer for readers who want to see how the pieces compose end to end.
+
+## What Comes Next
+
+This closes the value-based sequence: from bandits to MDPs, dynamic programming, model-free prediction, tabular control, DQN, and the main DQN variants. The next section changes the object being learned. Instead of deriving a policy from $Q$ by an $\arg\max$, policy-gradient methods parameterize the policy directly.

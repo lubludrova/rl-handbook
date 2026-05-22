@@ -1,0 +1,179 @@
+---
+title: TRPO
+description: Trust Region Policy Optimization, KL-constrained policy updates, and GAE advantages.
+---
+
+> **Abstract.** Actor-critic methods give the policy a lower-variance learning signal, but they still do not say how far the policy should move in one update. In an on-policy method this is dangerous: a single oversized step can collapse the policy, the next batch is collected by a damaged policy, and subsequent gradients only get worse. TRPO builds a local surrogate of the objective around the old policy and keeps the new policy inside a KL neighborhood where that surrogate stays reliable.
+
+A2C and A3C improved the REINFORCE by replacing full Monte Carlo returns with critic-based advantage estimates. That makes the gradient less noisy, but the update itself is still an ordinary gradient step. It can point in a useful local direction while saying very little about how far the policy should move.
+
+In value-based methods, a bad update damages the value estimate, but the behavior policy is typically an external rule like $\epsilon$-greedy that continues to explore regardless of how accurate the value function is. In on-policy policy gradients, the policy is both the object being optimized and the data-collection mechanism. If one update makes a good action nearly impossible or collapses exploration too early, the next batch of rollouts is collected by a worse policy. The following gradient estimate is then worse as well. This is the catastrophic update problem: a single overly large policy step can start a cascading failure.
+
+Trust Region Policy Optimization, introduced by Schulman et al. in 2015, addresses exactly this point. It keeps the policy-gradient idea but changes the update from "take a gradient step" to "improve a local approximation, subject to a bound on how much the policy distribution may change."
+
+<Callout title="A note on practical relevance" type="tip">
+Two years later the same authors published PPO (covered in the next section), which keeps TRPO's local-update spirit but replaces the KL-constrained second-order solver with a much simpler clipped first-order objective. In practice almost nobody trains with TRPO today: PPO is easier to implement, easier to tune, and competitive on most benchmarks. We still spend a chapter on TRPO because the underlying idea is what PPO inherits, and it is much easier to understand PPO's clipping trick once you have seen the constrained problem it is approximating.
+</Callout>
+## From a Policy Gradient to a Local Objective
+
+Suppose we have just collected trajectories using the old policy $\pi_{\theta_{\text{old}}}$. For each sampled state-action pair, we estimate the old policy's advantage $A^{\pi_{\theta_{\text{old}}}}(s,a)$. A positive advantage says that action $a$ did better than the old policy's average action in state $s$; a negative advantage says it did worse.
+
+Recall the policy objective, written as a sum over trajectories:
+
+$$
+J(\theta) = \sum_\tau P_\theta(\tau)\, G(\tau),
+\qquad
+G(\tau) = \sum_{t=0}^{T-1} \gamma^t R_{t+1}.
+$$
+
+The dependence on $\theta$ sits inside the trajectory distribution $P_\theta(\tau)$: changing $\theta$ changes which trajectories are likely, and through that the expected return.
+
+The policy-gradient theorem tells us the **direction** in which to change $\theta$, but it says nothing about how far to move. For an infinitely small step the direction is always correct, but real updates are finite, and a finite step in the wrong direction can destroy the policy. Vanilla policy gradient sidesteps the step-size question by taking a tiny step and immediately resampling: each iteration uses fresh on-policy data, and $J(\theta)$ as a function is never evaluated explicitly. Only its gradient at the current point is estimated.
+
+TRPO is more ambitious. It wants to pick a finite update by **comparing many candidate** $\theta$ against one fixed batch collected by $\pi_{\theta_{\text{old}}}$. But the formula above shows the obstacle: evaluating $J(\theta)$ for a candidate would require trajectories drawn from $P_\theta$, the trajectory distribution of the very policy we are still trying to choose. We do not have those rollouts. So TRPO builds a **surrogate** of $J$ that is a function of $\theta$, but is estimated from the old policy's batch.
+
+To see where the surrogate comes from, start with an exact identity. The performance gap between the new and old policies can be written as
+
+$$
+J(\theta) - J(\theta_{\text{old}})
+= \mathbb{E}_{s \sim \rho^{\pi_\theta},\, a \sim \pi_\theta}\!\left[
+A^{\pi_{\theta_{\text{old}}}}(s, a)
+\right],
+$$
+
+where $\rho^{\pi_\theta}$ is the unnormalized discounted state-visitation measure under $\pi_\theta$. The improvement of $\pi_\theta$ over $\pi_{\theta_{\text{old}}}$ is exactly the old policy's advantage, weighted by the new policy's discounted visitation measure. The advantage is computed with the **old** policy as a reference, while the states and actions are sampled from the **new** policy.
+
+This expression is exact but not usable directly: it requires rollouts from $\pi_\theta$, which is precisely the policy we are still trying to choose. TRPO replaces the new-policy visitation $\rho^{\pi_\theta}$ with the old-policy visitation $\rho^{\pi_{\theta_{\text{old}}}}$, which we can sample from. This gives the **local surrogate**
+
+$$
+L_{\theta_{\text{old}}}(\theta)
+= \mathbb{E}_{s \sim \rho^{\pi_{\theta_{\text{old}}}},\, a \sim \pi_\theta}\!\left[
+A^{\pi_{\theta_{\text{old}}}}(s, a)
+\right].
+$$
+
+Two things change in this step: the state distribution becomes one we can sample from, and only the inner action distribution still depends on $\theta$. This is what turns the expression into a usable function of $\theta$.
+
+At $\theta = \theta_{\text{old}}$, the surrogate matches the true objective in both value and gradient,
+
+$$
+L_{\theta_{\text{old}}}(\theta_{\text{old}}) = 0,
+\qquad
+\nabla_\theta L_{\theta_{\text{old}}}(\theta) \big|_{\theta = \theta_{\text{old}}}
+= \nabla_\theta J(\theta) \big|_{\theta = \theta_{\text{old}}}.
+$$
+
+So locally around the old policy, improving $L$ improves $J$. This first-order match is what justifies optimizing the surrogate in the first place. In other words, the surrogate works as long as we stay close to the old policy. How to actually keep $\pi_\theta$ close to $\pi_{\theta_{\text{old}}}$ at every step we will discuss in one of the next sections. 
+
+The remaining problem is that $L_{\theta_{\text{old}}}(\theta)$ still expects actions from the new policy $\pi_\theta$, while our data comes from the old policy. Importance sampling bridges this gap. By weighting each sampled action by the probability ratio $\pi_\theta(a|s) / \pi_{\theta_{\text{old}}}(a|s)$, we can rewrite the inner action expectation in terms of actions actually sampled from $\pi_{\theta_{\text{old}}}$. The result is the surrogate that TRPO actually optimizes:
+
+$$
+L^{IS}(\theta)
+= \mathbb{E}_{s,a \sim \pi_{\theta_{\text{old}}}}\left[
+\frac{\pi_\theta(a \mid s)}{\pi_{\theta_{\text{old}}}(a \mid s)}
+\, A^{\pi_{\theta_{\text{old}}}}(s,a)
+\right].
+$$
+
+The expectation is over data collected by the old policy. Without the ratio, this expression would be a constant: the mean advantage under $\pi_{\theta_{\text{old}}}$, independent of $\theta$. The ratio is what makes the surrogate depend on $\pi_\theta$ and therefore differentiable with respect to $\theta$.
+
+When the old policy sampled an action with positive advantage, increasing the ratio (making the action more likely under $\pi_\theta$) improves the surrogate. When the advantage is negative, decreasing the ratio improves it.
+
+## Estimating the Advantage: GAE
+
+The surrogate objective depends on $A^{\pi_{\theta_{\text{old}}}}(s,a)$, but the true advantage is unknown. REINFORCE can estimate it with Monte Carlo returns minus a baseline, but long-horizon Monte Carlo estimates have high variance. One-step TD residuals have lower variance, but they depend strongly on the learned value function and can be biased when that value function is wrong.
+
+Generalized Advantage Estimation, introduced by Schulman et al. in 2016, is the standard compromise. Start with a value function $V$ and define the one-step TD residual
+
+$$
+\delta_t^V = r_t + \gamma V(s_{t+1}) - V(s_t).
+$$
+
+This residual measures whether the observed reward plus the bootstrapped next-state value was better or worse than the value predicted for the current state. If it is positive, the transition was better than the value function expected; if it is negative, it was worse.
+
+GAE then sums future TD residuals with exponentially decaying weights:
+
+$$
+\hat{A}_t^{\text{GAE}(\gamma,\lambda)}
+= \sum_{l=0}^{\infty} (\gamma\lambda)^l \delta_{t+l}^V.
+$$
+
+The estimator says that the advantage at time $t$ can be built from a stream of later prediction errors. The factor $\gamma\lambda$ shortens or lengthens the credit-assignment window: residuals far in the future matter less, and they matter even less when $\lambda$ is small.
+
+In finite rollout segments, the same idea is truncated at the end of the collected batch:
+
+$$
+\hat{A}_t
+= \sum_{l=0}^{T-t-1} (\gamma\lambda)^l \delta_{t+l}^V.
+$$
+
+This is the practical form used in on-policy deep RL. It works backward through a rollout segment, accumulating a discounted trace of TD residuals and resetting or bootstrapping at episode boundaries.
+
+The parameter $\lambda \in [0,1]$ is a bias-variance dial. At one extreme,
+
+$$
+\lambda = 0 \quad \Rightarrow \quad \hat{A}_t = \delta_t^V.
+$$
+
+This recovers the one-step TD residual. It has low variance because it looks only one step ahead, but it is biased by errors in $V$.
+
+At the other extreme,
+
+$$
+\lambda = 1 \quad \Rightarrow \quad \hat{A}_t \approx \sum_{k \ge 0} \gamma^k r_{t+k} - V(s_t).
+$$
+
+This recovers the Monte Carlo-style advantage, up to truncation and terminal handling. It has much lower bias in the discounted setting, but much higher variance because many future rewards influence the estimate.
+
+Intermediate values, commonly around $0.9$ to $0.97$, usually work best. They keep enough multi-step information to reduce value-function bias while damping the far-future noise that makes Monte Carlo policy gradients unstable. In the historical TRPO line, TRPO supplied the conservative policy update and GAE supplied the advantage estimator stable enough to make that update useful on difficult continuous-control tasks.
+
+## The KL Trust Region
+
+Let's recall the surrogate that TRPO optimizes:
+
+$$
+L^{IS}(\theta)
+= \mathbb{E}_{s,a \sim \pi_{\theta_{\text{old}}}}\left[
+\frac{\pi_\theta(a \mid s)}{\pi_{\theta_{\text{old}}}(a \mid s)}
+\, A^{\pi_{\theta_{\text{old}}}}(s,a)
+\right].
+$$
+
+As we mentioned earlier, the ratio can become unstable if $\pi_\theta$ moves far from $\pi_{\theta_{\text{old}}}$: a few actions may receive huge weights while many useful sampled actions become nearly irrelevant. 
+To solve it, TRPO constrains the update with a mean KL divergence between the old and new policies:
+
+$$
+\bar{D}_{KL}(\pi_{\theta_{\text{old}}} \| \pi_\theta) \le \delta.
+$$
+
+The bar indicates an average over states from the old policy's visitation distribution. The constraint says that, on the states we actually saw, the new action distribution must stay close to the old action distribution. The scalar $\delta$ is the trust-region radius: smaller values make safer but slower updates; larger values allow faster learning but raise the risk of destructive changes.
+
+The resulting TRPO update is the constrained optimization problem
+
+$$
+\max_\theta \; L^{IS}(\theta)
+\quad \text{subject to} \quad
+\bar{D}_{KL}(\pi_{\theta_{\text{old}}} \| \pi_\theta) \le \delta.
+$$
+
+This equation is the algorithm's core. The objective says "prefer the new policy if it raises the probability of old-batch actions with positive advantage and lowers the probability of old-batch actions with negative advantage." The constraint says "but do not change the action distribution too much in one update."
+
+The KL form is also the reason TRPO is often described as a natural-gradient method made practical. A vanilla gradient step measures distance in parameter space, where a small $\|\Delta\theta\|$ may still produce a large distributional change if the parameterization is sensitive. A natural-gradient step measures local distance in the geometry of the policy distribution itself.
+
+The price for measuring distance in policy space is that the constraint $\bar D_{KL} \le \delta$ is a nonlinear function of $\theta$, and we cannot solve "maximize $L^{IS}$ subject to KL $\le \delta$" with a single SGD step. TRPO handles this with two local approximations. It **linearizes** the surrogate $L^{IS}$ around $\theta_{\text{old}}$, and replaces the KL constraint with its second-order Taylor expansion. The second-order term turns out to involve the **Fisher information matrix** $F$, which captures how sensitive the policy distribution is to each parameter direction. The approximate problem then has a closed-form solution pointing in the direction $F^{-1} \nabla L$, which is exactly the natural-gradient direction.
+
+There is one more obstacle: $F^{-1}$ cannot be formed explicitly for a neural-network-sized $\theta$, that matrix is far too big. So TRPO computes the natural-gradient direction iteratively with **conjugate gradient**, and then runs a **line search** along that direction to make sure the final step actually satisfies the KL bound and improves the surrogate. The quadratic approximation can be inaccurate further from $\theta_{\text{old}}$, and the line search is the safety net against that.
+
+This whole solver is much heavier than one SGD step, and that complexity is one of the main reasons **PPO** later replaced TRPO in practice. PPO keeps the same "stay close to $\pi_{\theta_{\text{old}}}$" philosophy but drops the explicit constraint, the Fisher matrix, the conjugate gradient, and the line search. It packs the trust-region intuition into a simple clipped first-order objective that can be trained with normal SGD. The next chapter is about that move.
+
+Despite the importance-sampling ratio, TRPO is still an **on-policy** method. The ratio is only trustworthy near $\pi_{\theta_{\text{old}}}$: once we drift far away, a few sampled actions dominate the estimate and the surrogate becomes unreliable. So each iteration collects a fresh batch with the current policy, performs one constrained update against that batch, and then discards the batch. There is no replay buffer of the kind off-policy methods rely on.
+
+The full TRPO loop, then, is: collect rollouts with the current policy, estimate advantages (typically with GAE), solve the KL-constrained natural-gradient update on those samples, accept the step if it improves the surrogate and stays inside the trust region, and discard the batch before the next iteration.
+
+## Full code
+
+Honestly, we are skipping a runnable example here. A toy TRPO with Fisher-vector products, conjugate gradient, and a line search is a small project on its own, and the short version tends to behave badly on neural-network policies anyway, which is exactly the case TRPO is supposed to handle. Since nobody really trains with TRPO in practice these days, we are spending that effort on PPO instead. If you want to see a clean full implementation, [ikostrikov/pytorch-trpo](https://github.com/ikostrikov/pytorch-trpo) is a good place to look.
+
+## What Comes Next
+
+The next chapter is on PPO, the algorithm that inherited TRPO's local-update idea and became the dominant on-policy method in practice. PPO keeps the same importance-ratio object and the same "stay close to $\pi_{\theta_{\text{old}}}$" philosophy, but throws out the constrained solver: no Fisher matrix, no conjugate gradient, no line search. Instead it modifies the surrogate so that the ratio stops paying off once it strays too far from $1$, which lets the whole update run as plain first-order SGD on a clipped objective. Everything we built here, the surrogate, the ratio, the advantage estimated with GAE, carries over directly.

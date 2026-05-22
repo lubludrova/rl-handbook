@@ -1,0 +1,5 @@
+<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+  <rect x="4" y="4" width="92" height="92" rx="16" fill="#F8F9FA" stroke="#0A0A0A" stroke-width="6"/>
+  <text x="50" y="67" text-anchor="middle" fill="#0A0A0A"
+    font-family="'Courier New', monospace" font-weight="900" font-size="50" letter-spacing="-1">RL</text>
+</svg>

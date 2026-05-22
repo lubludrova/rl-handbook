@@ -1,0 +1,325 @@
+---
+title: Policy Gradient and REINFORCE
+description: Direct policy parameterisation, the policy gradient theorem, REINFORCE, baseline subtraction, and the advantage form.
+---
+
+> **Abstract.** Policy-gradient methods learn the policy itself, $\pi_\theta(a \mid s)$, instead of learning a value table and taking an $\arg\max$. The key question is how to change the policy parameters when the only feedback is a sampled trajectory and its delayed rewards. The policy gradient theorem gives the answer: push up the probability of actions that led to high return, and push down the probability of actions that did not. REINFORCE is the simplest version of this idea, using the Monte Carlo return $G_t$ from the same episode as the learning signal.
+
+Value-based control learned $Q(s,a)$ and derived a policy by choosing the action with the largest value. That worked naturally for small discrete action spaces, and DQN kept the same shape by producing one $Q$ value per action. The limitation is visible in the word "per." For a small discrete action space, taking $\arg\max_a Q(s,a)$ means scoring a few options and picking the best one. For continuous actions, such as torques or steering commands, or structured actions, such as generated tokens, the set of choices is no longer something we can simply list and compare.
+
+The issue is not that values stop being meaningful. It is that acting from a value function now requires solving an optimization problem inside every environment step. A neural $Q_\theta(s,a)$ for a continuous action could score any proposed action, but it would not automatically tell us which real-valued action maximizes the score. Now the idea of policy-based method is simple: let's just try to optimize the policy itself, because at the end this is what we need.
+
+Policy-gradient methods start with parameterizing a policy directly:
+
+$$
+\pi_\theta(a \mid s).
+$$
+
+This is called a stochastic policy: it outputs a probability distribution over actions, and the agent acts by sampling from it. The alternative is a deterministic policy, $a = \pi_\theta(s)$, which maps each state to a single action with no randomness. Intuitively, the difference is whether the same state can produce different actions on different visits. Learning a stochastic policy is often more convenient, because the sampling step gives exploration for free and the gradient passes cleanly through the distribution, so we will mostly focus on stochastic policies.
+
+The parameters $\theta$ may be a small table, a linear model, or a neural network. The output is a probability distribution over actions. In a discrete environment this is often a softmax over action preferences, producing a categorical distribution. In continuous control it is often a Gaussian distribution whose parameters come from the policy network. The agent acts by sampling from the distribution, then adjusts $\theta$ so that actions followed by high return become more likely.
+
+## The Objective
+
+For an episodic task, write a trajectory as
+
+$$
+\tau = (S_0, A_0, R_1, S_1, A_1, R_2, \ldots, S_T).
+$$
+
+A policy $\pi_\theta$ defines a distribution over trajectories: the policy samples actions, and the environment responds with next states and rewards. The performance objective is the expected discounted return of a trajectory:
+
+$$
+J(\theta) = \mathbb{E}_{\tau \sim \pi_\theta}\bigl[G(\tau)\bigr],
+\qquad
+G(\tau) = \sum_{t=0}^{T-1} \gamma^t R_{t+1}.
+$$
+
+Equivalently, the same objective can be written as a sum over possible trajectories:
+
+$$
+J(\theta) = \sum_\tau P_\theta(\tau) G(\tau).
+$$
+
+When the state or action space is continuous, the sum is really an integral over the space of trajectories, and the derivation that follows is identical. The same identity in integral form reads:
+
+$$
+J(\theta) = \int P_\theta(\tau)\, G(\tau)\, d\tau.
+$$
+
+Throughout the rest of the chapter we keep the $\sum_\tau$ notation, with the understanding that it stands for an integral in the continuous case. This form shows where the difficulty lives. The return $G(\tau)$ is the number observed after a trajectory happens. The parameters $\theta$ change the objective by changing how likely different trajectories are.
+
+For an episodic MDP, the probability of one trajectory factors as
+
+$$
+P_\theta(\tau)
+= p(S_0)
+\prod_{t=0}^{T-1}
+\pi_\theta(A_t \mid S_t)
+p(S_{t+1}, R_{t+1} \mid S_t, A_t).
+$$
+
+Read this as the probability of starting in $S_0$, then repeatedly choosing the recorded action under the policy and having the environment produce the recorded next state and reward. Only the policy terms contain $\theta$. The initial-state distribution and the environment dynamics are not controlled by the policy parameters. In model-free RL we also do not know those transition probabilities, and we should not need to differentiate through them.
+
+Now differentiate the objective:
+
+$$
+\nabla_\theta J(\theta)
+= \sum_\tau \nabla_\theta P_\theta(\tau)\, G(\tau).
+$$
+
+Before applying the derivative, split the trajectory probability into the part that contains $\theta$ and the part that does not:
+
+$$
+P_\theta(\tau)
+= \underbrace{\prod_{t=0}^{T-1} \pi_\theta(A_t \mid S_t)}_{\text{policy}}
+\;
+\underbrace{p(S_0)
+\prod_{t=0}^{T-1}
+p(S_{t+1}, R_{t+1} \mid S_t, A_t)}_{\text{environment}}.
+$$
+
+Only the policy product depends on $\theta$. Differentiating therefore hits only that group. Grouping the environment factors next to the sum over states and the policy factors next to the sum over actions makes the structure transparent:
+
+$$
+\nabla_\theta J(\theta)
+= \sum_{S}
+p(S_0)
+\prod_{t=0}^{T-1}
+p(S_{t+1}, R_{t+1} \mid S_t, A_t)
+\sum_{A}
+\nabla_\theta \prod_{t=0}^{T-1} \pi_\theta(A_t \mid S_t)
+\, G(\tau).
+$$
+
+The difficulty is that $\nabla_\theta P_\theta(\tau)$ is the gradient of a probability, not a probability itself. A weighted sum $\sum_\tau \nabla_\theta P_\theta(\tau)\, G(\tau)$  therefore is not an expectation, because the weights do not form a distribution: gradients of probabilities can be negative and always sum to zero. You cannot sample a trajectory and use it to estimate this sum because now we have a gradient of probabilities of trajectories.
+
+That is exactly what the log-derivative trick provides.
+
+## The Log-Derivative Trick
+
+The key algebraic move is the log-derivative trick (not that hard math):
+
+$$
+\nabla_\theta \pi_\theta(a \mid s)
+= \pi_\theta(a \mid s) \nabla_\theta \log \pi_\theta(a \mid s).
+$$
+
+This identity is just the chain rule applied to $\log \pi_\theta(a \mid s)$. It matters because it rewrites a derivative of a probability into a probability times a derivative of a log-probability. The same move applies to the whole trajectory probability:
+
+$$
+\nabla_\theta P_\theta(\tau)
+= P_\theta(\tau) \nabla_\theta \log P_\theta(\tau).
+$$
+
+Because the environment factors in $P_\theta(\tau)$ do not contain $\theta$, the log of the trajectory probability keeps only the policy terms when differentiated:
+
+$$
+\nabla_\theta \log P_\theta(\tau)
+= \sum_{t=0}^{T-1}
+\nabla_\theta \log \pi_\theta(A_t \mid S_t).
+$$
+## From Trick to Update
+
+Apply the log-derivative identity to the objective:
+
+$$
+\nabla_\theta J(\theta)
+= \sum_\tau P_\theta(\tau)\, \nabla_\theta \log P_\theta(\tau)\, G(\tau)
+= \mathbb{E}_\tau\!\left[\nabla_\theta \log P_\theta(\tau)\, G(\tau)\right].
+$$
+Or in the full way: 
+$$
+\nabla_\theta J(\theta)
+= \sum_{S}
+p(S_0)
+\prod_{t=0}^{T-1}
+p(S_{t+1}, R_{t+1} \mid S_t, A_t)
+\sum_{A}
+\prod_{t=0}^{T-1} \pi_\theta(A_t \mid S_t)\
+\sum_{t=0}^{T-1} \nabla_\theta \log\pi_\theta(A_t \mid S_t)
+\, G(\tau).
+$$
+
+the expectation expands into a sum over timesteps:
+
+$$
+\nabla_\theta J(\theta)
+= \mathbb{E}_\tau\!\left[
+\sum_{t=0}^{T-1} \nabla_\theta \log \pi_\theta(A_t \mid S_t)\, G(\tau)
+\right].
+$$
+All three formulas is basically the same thing but in different terms. If you are confused, ask any llm to derive one from each other, can be helpful, because I don't know how else to organize this idea in a better way.
+
+For one sampled action, the score term $\nabla_\theta \log \pi_\theta(A_t \mid S_t)$ says how to change $\theta$ to make that sampled action more likely in that state, and the return $G(\tau)$ supplies the scalar weight that says whether the action was good or bad. If the action led to a high return, the gradient pushes the policy in the direction that makes it more probable; if the return was low, it pushes in the opposite direction.
+
+For a single sampled trajectory, the Monte Carlo estimator replaces the expectation with one sample:
+
+$$
+\nabla_\theta J(\theta)
+\approx
+\sum_{t=0}^{T-1} \nabla_\theta \log \pi_\theta(A_t \mid S_t)\, G(\tau).
+$$
+
+This is almost an algorithm, but there is a subtle point. The return $G(\tau)$ is the discounted sum of rewards for the *entire* trajectory. Rewards collected before time $t$ do not depend on the action $A_t$, they were already determined by earlier states and actions. Only rewards from time $t$ onward are influenced by the choice of $A_t$. Replacing the full return with the return from time $t$ onward,
+
+$$
+G_t = R_{t+1} + \gamma R_{t+2} + \gamma^2 R_{t+3} + \cdots,
+$$
+
+gives a more targeted weight for each action while keeping the estimator unbiased. In fact $\mathbb{E}_{\pi_\theta}[G_t \mid S_t, A_t] = Q^{\pi_\theta}(S_t, A_t)$, so the return from time $t$ is an unbiased sample of the action value. The result is the REINFORCE update:
+
+$$
+\nabla_\theta J(\theta)
+\approx
+\sum_{t=0}^{T-1} \nabla_\theta \log \pi_\theta(A_t \mid S_t)\, G_t.
+$$
+
+## The Policy Gradient Theorem
+
+The derivation above built the estimator starting from the trajectory probability and arrived at
+
+$$
+\nabla_\theta J(\theta)
+= \mathbb{E}_{s,a \sim \pi_\theta}\left[
+\nabla_\theta \log \pi_\theta(a \mid s)\, G_t
+\right],
+$$
+
+where $G_t$ is the sampled future return from time $t$ onward. The policy gradient theorem states the same result in a more general form: the sampled return $G_t$ can be replaced by *any* unbiased estimator $\hat{Q}_t$ of the future return from $(S_t, A_t)$, and the formula still holds:
+
+$$
+\nabla_\theta J(\theta)
+= \mathbb{E}_{s,a \sim \pi_\theta}\left[
+\nabla_\theta \log \pi_\theta(a \mid s)\, \hat{Q}_t
+\right].
+$$
+
+This formula is the reason direct policy optimization is possible. It says we do not need to differentiate through the environment transition probabilities. We only need sampled states and actions, their policy log-probabilities, and an estimate of how much return followed each action.
+
+The theorem explains the shape of every policy-gradient algorithm in this part of the handbook:
+
+$$
+\text{policy update} \propto
+\text{score of sampled action} \times \text{return or advantage estimate}.
+$$
+
+Algorithms mostly differ in how the second factor is estimated and how cautiously the parameters are moved. The first answer is to use no learned value function at all: wait for the episode return and use it directly and this is REINFORCE (the case $\hat{Q}_t = G_t$). The next section makes that concrete; later sections introduce better estimators (with learned value functions $V^\pi$ and $Q^\pi$, and the advantage $A^\pi = Q^\pi - V^\pi$) when we look at variance reduction.
+
+## REINFORCE
+
+Williams (1992) named the algorithm REINFORCE and proved that the Monte Carlo estimator is an unbiased estimate of the true policy gradient. A large positive weight increases the log-probability of the sampled action; a negative weight decreases it. With raw CartPole rewards the returns are usually positive, so plain REINFORCE reinforces all sampled actions but reinforces actions from longer episodes more strongly. After baseline subtraction, actions that did worse than the baseline receive negative weights.
+
+REINFORCE is Monte Carlo because it waits for sampled rewards rather than bootstrapping from a learned value estimate. The upside is conceptual cleanliness: $G_t$ is an unbiased sample of the expected future return after taking action $A_t$ in state $S_t$. The downside is variance. Two episodes can take the same early action and later diverge because of environment randomness or later exploration, so the same score term may be multiplied by very different returns.
+
+A single sampled trajectory gives a noisy estimate, so in practice each update averages the gradient over $N$ trajectories collected under the current policy. The single-trajectory estimator from before becomes a Monte Carlo Policy-Gradient:
+
+$$
+\nabla_\theta J(\theta)
+\approx
+\frac{1}{N} \sum_{i=1}^{N} \sum_{t=0}^{T_i - 1}
+\nabla_\theta \log \pi_\theta(A_t^{(i)} \mid S_t^{(i)})\, G_t^{(i)}).
+$$
+
+The training loop in pseudocode:
+
+```
+initialize policy parameters theta randomly
+
+repeat:
+    sample N trajectories tau_1, ..., tau_N under current policy pi_theta
+    estimate gradient:
+        grad_J = (formula above)
+    ascend:
+        theta <- theta + alpha * grad_J
+```
+
+Is REINFORCE on-policy or off-policy? Look at the loop: at every step we throw away the old data and collect a fresh batch of $N$ trajectories under the *current* policy $\pi_\theta$, and only those trajectories enter the gradient estimate. The derivation made this assumption from the start, the expectation $\mathbb{E}_{\tau \sim \pi_\theta}$ that the estimator approximates is an expectation under the policy we are currently optimizing. Trajectories from an older version of the policy would be samples from a different distribution, and substituting them would bias the gradient. REINFORCE is therefore  on-policy: every parameter update invalidates the data that produced it, and the next update needs new samples.
+
+## Baselines Reduce Variance
+
+The raw return $G_t$ contains information that is not specific to the chosen action. Some states are good no matter which action is sampled; others are bad no matter what the agent does. Multiplying the score term by the whole return forces the gradient estimator to carry this state-level noise.
+
+A simple two-action example makes this tangible. In some state the agent can go *left* (return $+1$) or *right* (return $0$). When we sample *left*, the gradient pushes its log-probability up; when we sample *right*, the weight is zero and nothing moves. The policy quickly learns to prefer *left*. Now imagine that every reward is shifted by $+100$. The task is unchanged, but returns become $+101$ and $+100$. Both samples now produce large positive pushes, so each update bumps whichever action was sampled, with *left* winning only by one part in a hundred. Learning still converges, but most of the gradient magnitude is spent on a uniform "everything is good" push that says nothing about *which* action is better. The useful signal is the *difference* between returns, not their absolute level and we can modify our $Q$ accordingly by adding some baseline.
+
+Let's add baseline $b(s)$ which subtracts a state-dependent quantity without changing the expected gradient:
+
+$$
+\nabla_\theta J(\theta)
+= \mathbb{E}\left[
+\nabla_\theta \log \pi_\theta(a \mid s)\,\left(Q^{\pi_\theta}(s,a) - b(s)\right)
+\right].
+$$
+
+The baseline $b(s)$ may depend on the state, but not on the sampled action. To see why, split the gradient with baseline into two expectations:
+
+$$
+\nabla_\theta J(\theta)
+= \mathbb{E}\left[\nabla_\theta \log \pi_\theta(a \mid s)\, Q^{\pi_\theta}(s,a)\right]
+- \mathbb{E}\left[\nabla_\theta \log \pi_\theta(a \mid s)\, b(s)\right].
+$$
+
+The first term is the original policy gradient. For the formula to remain unbiased, the second term must equal zero. The one-line argument is:
+
+$$
+\mathbb{E}_{a \sim \pi_\theta(\cdot \mid s)}\left[
+\nabla_\theta \log \pi_\theta(a \mid s)b(s)
+\right]
+= b(s)\nabla_\theta \sum_a \pi_\theta(a \mid s)
+= b(s)\nabla_\theta 1
+= 0.
+$$
+
+The key step pulls $b(s)$ out of the inner sum over actions, which only works because $b$ does not depend on $a$. A baseline of the form $b(s,a)$ would stay inside the sum and the cancellation would fail, biasing the gradient.
+
+Subtracting the same state-dependent number from every action cannot systematically push probability mass toward one action or another. It changes the sampled weights, sometimes even their sign, but not the expected policy gradient. For $b(s)$ we can choose any function of $s$, but what a good way of doing that? 
+## Advantage Form
+
+The natural baseline is the state value $V^{\pi}(s)$, the average return from the state under the policy. Subtracting it leaves the part of $Q$ that says whether the sampled action was better or worse than the policy's usual behavior in that state.
+
+The advantage function is defined as
+
+$$
+A^\pi(s,a) = Q^\pi(s,a) - V^\pi(s).
+$$
+
+It is a relative quantity. Positive advantage means the action is better than the policy's average action in that state. Negative advantage means worse than average. Averaged over actions sampled from the policy, the advantage is zero:
+
+$$
+\mathbb{E}_{a \sim \pi(\cdot \mid s)}[A^\pi(s,a)] = 0.
+$$
+
+Using $b(s)=V^\pi(s)$ gives the advantage form of the policy gradient:
+
+$$
+\nabla_\theta J(\theta)
+= \mathbb{E}\left[
+A^{\pi_\theta}(s,a)\,\nabla_\theta \log \pi_\theta(a \mid s)
+\right].
+$$
+
+This is the form most modern policy-gradient methods use. The policy is not rewarded for visiting a generally good state; it is rewarded for choosing actions that are better than the policy's own average behavior in that state.
+
+In practice we do not know the true $V^{\pi}(s)$, so we train a second network $V_\phi(s)$ alongside the policy, typically by fitting it to the observed returns $G_t$ with mean-squared error. Even with this extra network around, the method is still REINFORCE, not actor-critic: $V_\phi$ enters the policy update only as a baseline subtracted from the Monte Carlo return $G_t$. Actor-critic methods go one step further and use the value network to *bootstrap*: replacing $G_t$ itself with $R_{t+1} + \gamma V_\phi(S_{t+1})$, so the policy update no longer waits for the full episode return.
+
+## Continuous Policies
+
+Direct policy parameterization is especially natural when actions are continuous. A common choice is a Gaussian policy:
+
+$$
+\pi_\theta(a \mid s) = \mathcal{N}(\mu_\theta(s), \sigma^2).
+$$
+
+The policy network outputs the mean action $\mu_\theta(s)$, while the variance may be fixed or learned. Acting means sampling a real-valued action from this distribution. Learning still uses the same score term $\nabla_\theta \log \pi_\theta(a \mid s)$; the difference is that the log-probability comes from a continuous density rather than a categorical probability.
+
+This avoids the value-based problem of searching over all possible continuous actions. The policy already knows how to produce an action. The gradient only needs to make sampled actions more or less likely according to their returns.
+
+## Full code
+
+The complete runnable example uses **REINFORCE with advantage**: a learned value function $V_\phi(s)$ serves as the baseline. Two networks are trained simultaneously — a policy network $\pi_\theta$ and a value network $V_\phi$ (the latter is used only as a baseline, not for bootstrapping):
+
+[`policy-gradient-and-reinforce.py`](https://github.com/lubludrova/rl-handbook/blob/main/content/docs/02-on-policy-policy-based/policy-gradient-and-reinforce/policy-gradient-and-reinforce.py)
+
+## What Comes Next
+
+REINFORCE is the cleanest policy-gradient algorithm, but not the most sample-efficient one. It waits until returns are observed, uses on-policy data, and can have high variance when episodes are long or rewards are delayed. A learned baseline reduces variance, but it still only subtracts from the Monte Carlo return after that return is known. The next step is actor-critic: A2C uses the value function as a critic, replacing the full return with a bootstrapped target, so the policy can learn from shorter TD-style signals.

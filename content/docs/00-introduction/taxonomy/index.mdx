@@ -1,0 +1,136 @@
+---
+title: Taxonomy of RL Methods
+description: "Model-free vs. model-based, value-based vs. policy-based, on-policy vs. off-policy: a map of the field."
+---
+>  **Abstract.** The field of reinforcement learning has fragmented into many algorithm families, each making different trade-offs. This chapter maps those families along three questions: does the agent use an explicit environment model, what object does it learn, and can it reuse data collected by older policies? The map also follows the current structure of the handbook: value-based methods first, then on-policy policy-based methods, then off-policy policy-based methods, and finally model-based and advanced settings.
+
+Walk into any RL paper from the last decade and you will encounter a label: "off-policy actor-critic," "model-based with Dyna-style rollouts," "on-policy policy gradient with clipped surrogate." These labels mark positions on a small number of design axes, each representing a genuine trade-off. This chapter works good for overall understanding the axes, which explain *why* different algorithms exist and what problems they were designed to solve.
+
+One warning before the map begins: this is not a clean tree. PPO is a policy-gradient method, but practical PPO is also an actor-critic method. DDPG is policy-based, but its critic is trained with a DQN-like Bellman target. Dynamic programming uses a known model, but it appears in the value-based section because it teaches the Bellman backup that later model-free methods approximate. The categories are coordinates, not boxes.
+
+## Model-Based vs. Model-Free
+
+The deepest divide in RL is between **model-based** and **model-free** methods.
+
+A **model** in RL is an explicit representation of the environment's dynamics: given state $s$ and action $a$, what state will follow, and what reward will the agent receive? Formally, it approximates $P(s' \mid s, a)$ and $R(s, a)$, the transition distribution and reward function (the are defined precisely in the MDP chapter).
+
+**Model-based** methods use or learn such a representation. With a model, the agent can simulate future trajectories without interacting with the real environment: it can plan ahead. The benefit is **sample efficiency**: each real interaction can be leveraged to generate many synthetic training examples. The risk is **model bias**: if the learned model is wrong, the policy will exploit that inaccuracy rather than solving the real problem. A model that slightly underestimates the cost of a dangerous action, for example, will produce a policy that reliably takes that action, because the policy optimizes against the model, not the true environment.
+
+**Model-free** methods learn directly from interaction, without building an explicit dynamics model. They are conceptually simpler and don't have model errors (just because we don't try to model the environment). The cost is **sample efficiency**: every gradient update requires real environment experience, which may be expensive or slow to collect.
+
+In practice, the choice comes down to whether an accurate environment model is available or learnable. Board games are the natural home for model-based methods: the rules of chess or Go are exact and give the agent a free simulator. AlphaGo Zero exploits this fully: at each move, MCTS simulates many games from the current position using the game rules as the model. Model-free methods dominate wherever the environment resists accurate simulation: raw-pixel Atari, continuous robotic locomotion, and many language-model fine-tuning setups. The cost for that is sample efficiency: a pure model-free agent needed 25 episodes to solve a simple grid-world; model-based agent with 50 planning steps per real interaction solved it in 3: nearly eight times more sample-efficient.
+
+This handbook covers model-free methods first, as they are more widely used, better analyzed, and provide the conceptual foundation that model-based methods extend. Model-based methods have their own dedicated section later.
+
+## Where Does the Data Come From?
+
+One more axis cuts across almost everything in the handbook.
+
+An **on-policy** algorithm trains only on data collected by the current policy, or by a very recent copy of it. Every time the policy parameters change, old data is discarded or used only for a small controlled number of epochs. The gradient estimates are cleaner with respect to the current policy. Examples: REINFORCE, A2C, TRPO, PPO.
+
+An **off-policy** algorithm can train on data collected by another policy, including older versions of learning agent. The behavior policy that generated the data can differ from the target policy being evaluated or improved. Examples: Q-learning, DQN, DDPG, TD3, SAC.
+
+Off-policy algorithms are generally more **sample-efficient**: every stored transition can be replayed many times across many gradient updates. On-policy algorithms are generally more **stable**: because the training data comes from the current policy, the policy-gradient estimates and trust-region assumptions are easier to control. The cost is data efficiency, because old data is thrown away after each update.
+
+The right choice depends on the problem. If real environment samples are expensive or dangerous, favor off-policy methods with replay or model-based methods with synthetic rollouts. If stability and controlled policy updates matter more, favor on-policy policy optimization.
+
+## Inside Model-Free
+
+All model-free methods answer the same question (*how do we optimize a policy without an explicit environment model?*) but they diverge in mechanism.
+
+### Family 1: Value-Based Methods
+
+Value-based methods learn an action-value function and derive a policy by greedily choosing the action with the largest value:
+
+$$
+\pi(s) = \arg\max_a Q(s,a).
+$$
+
+This works well in **discrete action spaces**, where computing $\arg\max_a Q(s,a)$ is a table lookup or a single forward pass with one output per action. In continuous action spaces, the $\arg\max$ becomes an inner optimization problem at every step, which breaks the approach's simplicity.
+
+The value-based section follows one line: start with bandits to isolate exploration, add states and delayed return through MDPs, use dynamic programming to see exact Bellman planning with a known model, then remove that model assumption and learn values from samples with Monte Carlo and TD methods. Sarsa and Q-learning turn value estimation into control, showing the on-policy/off-policy split in its simplest form. DQN then scales Q-learning with a neural network, while experience replay, target networks, and later DQN improvements repair the instability introduced by function approximation, bootstrapping, and off-policy data.
+
+The important continuity is that the policy is still implicit. Whether the value is stored in a table or represented by a neural network, action selection is still "look at the values and choose the largest."
+
+### Family 2: Policy-Based Methods
+
+Instead of deriving a policy from a value function, **policy-based** methods parameterize the policy directly and optimize its parameters. For a stochastic policy (output is distribution) this is written as $\pi_\theta(a \mid s)$; for a deterministic policy (output is one action), as $\mu_\theta(s)$. The basic idea is simple: learn the object that actually acts.
+
+The policy-gradient theorem gives the central update shape for stochastic policies:
+
+$$
+\nabla_\theta J(\theta)
+=
+\mathbb{E}_{\pi_\theta}
+\left[
+\nabla_\theta \log \pi_\theta(a \mid s)
+\cdot
+Q^{\pi_\theta}(s,a)
+\right].
+$$
+
+In plain terms: increase the probability of actions that led to high return and decrease the probability of actions that led to low return. REINFORCE is the cleanest version of this idea: it waits for complete episode returns $G_t$ and uses them as the learning signal. We will derive this formula later in policy-based chapter.
+
+Most practical policy-based methods therefore become **actor-critic** methods in one form or another. The **actor** is the policy, $\pi_\theta(a \mid s)$ or $\mu_\theta(s)$. The **critic** is a learned value function that evaluates the actor's behavior. On-policy methods such as A2C, A3C, TRPO, and PPO usually use a state-value critic $V_w(s)$ to build advantage estimates for fresh rollouts. Off-policy methods such as DDPG, TD3, and SAC use an action-value critic $Q_w(s,a)$, train it from a replay buffer, and improve the actor by asking which actions the critic scores highly.
+
+This gives the main split inside the policy-based family. **On-policy policy-based methods** collect fresh rollouts from the current policy, estimate advantages, update the actor, and discard the batch. A2C and A3C introduce the actor-critic pattern with bootstrapped advantage estimates; TRPO and PPO then focus on controlling how far the policy moves in one update. **Off-policy policy-based methods** trade that clean data assumption for replay-based sample reuse. DDPG learns a deterministic actor as a differentiable replacement for $\arg\max_a Q(s,a)$, TD3 stabilizes that template with twin critics and delayed actor updates, and SAC makes the actor stochastic under a maximum-entropy objective.
+## Inside Model-Based
+
+Model-based methods also divide into two distinct strategies based on *when* the model is used.
+### Decision-Time Planning
+
+In **decision-time planning**, the agent runs a search procedure at each step using the model to simulate possible futures, then acts based on that search. The canonical algorithm is **Monte Carlo Tree Search (MCTS)**: thousands of simulated trajectories from the current state are used to estimate action values, and the best action is selected.
+
+**AlphaGo Zero** uses this approach with a learned evaluation network. At each move, MCTS guided by the network simulates 1600 games from the current board position and returns an improved policy. Training then adjusts the network toward this stronger MCTS-derived policy, implementing policy iteration with search as the improvement operator.
+
+Decision-time planning is most natural when the model is given (game rules), actions are discrete, and inference time is not a bottleneck.
+### Background Training (Dyna Style)
+
+In **background training**, the model generates synthetic experience to augment the data available to a model-free learner. This idea was introduced in 1990 as **Dyna**: a Q-learner interleaved with simulated updates from a learned model, sharing the same value function.
+
+Modern instantiations include **MBPO**, which uses short model-generated rollouts from a replay buffer to train model-free actor-critic (SAC), and **Dreamer**, which trains an actor-critic entirely inside a learned latent world model using analytic value gradients through the model. The appeal is sample efficiency: a good model generates thousands of cheap synthetic transitions for every expensive real one.
+
+## A Compact Map of the Field
+
+The table below places the major handbook families along the axes we have discussed. 
+
+| Handbook family         | Model? | What's learned                         | Data regime                  | Action space           | Examples                                 |
+| ----------------------- | ------ | -------------------------------------- | ---------------------------- | ---------------------- | ---------------------------------------- |
+| Dynamic programming     | Known  | $V$, $Q$, policy                       | Model sweeps                 | Discrete tabular       | Policy iteration, value iteration        |
+| Value-based model-free  | No     | $Q(s,a)$                               | Samples, often replay        | Mostly discrete        | Sarsa, Q-learning, DQN, Rainbow          |
+| On-policy policy-based  | No     | $\pi_\theta(a \mid s)$, often $V_w(s)$ | Fresh rollouts               | Discrete or continuous | REINFORCE, A2C, A3C, TRPO, PPO           |
+| Off-policy policy-based | No     | Actor plus $Q_w(s,a)$                  | Replay buffer                | Mostly continuous      | DDPG, TD3, SAC                           |
+| Model-based planning    | Yes    | Model plus value or policy             | Search or synthetic rollouts | Discrete or continuous | Dyna, MPC, AlphaZero, MuZero             |
+
+No single family dominates. Value-based methods are sample-efficient and clean for discrete actions. On-policy policy-based methods handle continuous and structured actions with stable, controlled updates. Off-policy policy-based methods trade more complexity for replay-based sample reuse in continuous control. Model-based methods can be extremely sample-efficient when the model is accurate enough to trust.
+
+You will often hear people talk about the **actor-critic family**. That name is useful, but it can also hide the more important split. Most modern policy-based methods use the actor-critic idea in some form: A2C, A3C, TRPO, PPO, DDPG, TD3, and SAC all train a policy (the actor) together with a learned value function (the critic). For this handbook, I find it more useful to organize these methods by whether they can reuse old data. On-policy methods use fresh rollouts from the current policy. Off-policy methods can train from replay data collected by older policies. This map also leaves out some advanced branches because those chapters are not ready yet; the taxonomy will be updated as the handbook grows.
+
+## Where RL Algorithms Run: Environments and Benchmarks
+
+RL algorithms are tied tightly to the **environments** they were built for. Understanding all the popular environments will help you to get into reinforcement learning faster. This section walks through the main benchmarks you will encounter throughout the handbook and shows where each one sits on the taxonomy.
+
+**Pedagogical environments.** Small tabular or low-dimensional environments are the entry point for learning RL — inspectable by hand, fast to run on a laptop, and built to isolate one concept at a time. Most ship with **[Gymnasium](https://gymnasium.farama.org/)**, a Python library that gives every RL environment a uniform API. OpenAI released [the original Gym](https://github.com/openai/gym) in 2016; when it was deprecated in 2022, the Farama Foundation forked it as Gymnasium with a near-identical API. Concretely: `env.reset()` returns an initial state, and `env.step(action)` returns `(next_state, reward, terminated, truncated, info)`. Almost every modern RL codebase uses this interface, so familiarity with Gymnasium transfers directly to reading research code. Gymnasium ships with dozens of standard environments. The most popular ones fall into a few groups: **classic control** (CartPole, MountainCar, Pendulum, Acrobot), **toy text** for tabular methods (FrozenLake, CliffWalking, Taxi, Blackjack), and **Box2D physics** (LunarLander, BipedalWalker, CarRacing). We will meet several of them in later chapters as the running examples for specific algorithms.
+
+**Atari (ALE).** The [Arcade Learning Environment](https://ale.farama.org/) is a uniform Python interface to roughly 50 classic Atari 2600 games — Pong, Breakout, Space Invaders, Pac-Man, and others. The same agent architecture has to learn all of them from raw pixels, which made ALE the standard generalization benchmark for deep RL. Observations are $210 \times 160$ RGB frames, actions are up to 18 discrete joystick combinations, and rewards are in-game score deltas (sparse and game-specific). ALE drove the entire DQN lineage in chapter 1 — DQN, Double DQN, Prioritized Replay, Dueling, NoisyNets, C51, Rainbow — and was the first benchmark where one architecture trained on raw pixels reached human level on dozens of distinct tasks. Discrete actions and pixel observations are why ALE is value-based territory.
+
+**MuJoCo and DeepMind Control.** [MuJoCo](https://mujoco.org/) (Multi-Joint dynamics with Contact) is a rigid-body physics simulator that became the standard testbed for locomotion and manipulation in deep RL. Its canonical Gymnasium tasks have low-dimensional but real-valued state and action spaces:
+
+| Task        | State dim | Action dim | What it tests              |
+| ----------- | --------- | ---------- | -------------------------- |
+| Swimmer     | 10        | 2          | Smooth dynamics, easy      |
+| Hopper      | 12        | 3          | Single-leg balance         |
+| Walker2d    | 18        | 6          | Bipedal locomotion         |
+| HalfCheetah | 17        | 6          | Fast forward running       |
+| Ant         | 27        | 8          | Quadrupedal balance        |
+| Humanoid    | 33+       | 10+        | High-dim control, hardest  |
+
+Why is MuJoCo dominated by actor-critic methods? Value-based methods pick an action by computing $Q(s, a)$ for every $a$ and taking the max, which is suitable for Atari's 18 buttons, but impossible with a humanoid's 17 continuous joint torques. Actor-critic sidesteps this by producing an action directly from a parametric policy, and chapter 3 walks through how TRPO, PPO, DDPG, TD3, and SAC each add specific tricks to make humanoid locomotion actually learnable. The **[DeepMind Control Suite](https://github.com/google-deepmind/dm_control)** is a sister benchmark built on the same simulator with rewards normalized to $[0, 1]$ per step, which makes results easier to compare across tasks.
+
+**Board games.** Go, chess, shogi, and backgammon sit on the model-based side because their **rules are the model**: the transition function is given exactly, so decision-time planning becomes the natural method. Backgammon (a two-player race game driven by dice rolls) drove the first famous neural-net RL success — Tesauro's TD-Gammon (1992) trained by self-play to world-champion level. Go (an ancient Chinese strategy game on a $19 \times 19$ board where two players surround territory with stones) was conquered by AlphaGo Zero (Silver et al., 2017), which combined a policy/value network with MCTS (Monte Carlo Tree Search) guided by self-play and beat all human players from scratch. Chess and shogi (a Japanese cousin of chess where captured pieces can re-enter the game) were absorbed into the same template by AlphaZero (Silver et al., 2018). This is the territory of chapter 4.
+
+**Language models.** Modern LLMs like ChatGPT are partly trained with RL, in a setup called **RLHF** (Reinforcement Learning from Human Feedback). Text generation maps onto RL naturally. At each step the LM picks one token, which is the action. The state is the prompt plus everything generated so far. The reward measures how good the resulting completion is. In a nutshell, a human cannot score every training sample by hand, so for rewards RLHF uses a separate **reward model** instead: a small network that learns to predict which of two completions a human would prefer, trained on a few thousand pairwise comparisons. Chapter 2 covers RLHF in detail as the dominant modern application of policy gradient methods.
+
+## What Comes Next
+
+With the map of method families in hand, the handbook now turns to the algorithms themselves. Chapter 1 begins with the value-based branch, starting from the simplest setting: multi-armed bandits. From there, it builds up to MDPs, dynamic programming, temporal-difference learning, and Deep Q-Networks.

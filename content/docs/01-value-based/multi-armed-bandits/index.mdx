@@ -1,0 +1,191 @@
+---
+title: Multi-Armed Bandits
+description: "Learn exploration and exploitation in the simplest value-based setting: stationary bandits, regret, epsilon-greedy, UCB, and Thompson sampling."
+---
+
+> **Abstract.** A multi-armed bandit removes almost everything that makes reinforcement learning complicated: there are no states, no transitions, and no delayed consequences. What remains is the core exploration problem. The agent must decide whether to exploit the arm that currently looks best or explore arms whose rewards are still uncertain.
+
+The introduction framed reinforcement learning as sequential decision-making: an agent observes a state, takes an action, receives reward, and moves to a new state. Before we add states and transitions in the next chapter on Markov Decision Processes, it is useful to isolate the smallest version of the problem where learning from reward is already nontrivial.
+
+The problem is **$k$-armed bandit**. The name comes from slot machines: each arm has an unknown payout distribution, and every pull gives one reward. The agent wants to earn as much reward as possible over time. There is no state to interpret, no transition model to learn, and no future state whose value must be estimated. Each step is just: choose an arm, observe a reward, update what we believe about that arm.
+
+<img
+  src="/docs-assets/01-value-based/multi-armed-bandits/slot-machines.png"
+  alt="Three slot machines, each with different reel symbols, illustrating the k-armed bandit setup"
+  style={{ maxWidth: '70%', margin: '2rem auto', display: 'block' }}
+/>
+
+This makes bandits the cleanest setting for the **exploration–exploitation trade-off**. Exploitation means pulling the arm that currently has the highest estimated reward. Exploration means pulling another arm because it might be better than the estimate suggests. In full RL, this trade-off is tangled with temporal credit assignment and state visitation. In bandits, it appears in its purest form.
+
+## The $k$-Armed Bandit Setup
+
+There are $k$ actions, which we call arms. At each time step $t$, the agent chooses one action $A_t \in \{1, \ldots, k\}$ and receives a scalar reward $R_t$ sampled from that arm's reward distribution.
+
+In the **stationary** bandit setting, each arm's reward distribution is fixed over time. Pulling arm $a$ today and pulling the same arm tomorrow samples from the same distribution. Each arm therefore has a single fixed expected reward, which is its long-run average payout. We call this number the **action-value** of arm $a$ and denote it
+
+$$
+q_*(a) = \mathbb{E}[R \mid A = a].
+$$
+
+Two things to keep in mind. First, $q_*(a)$ is a property of the environment, not of the agent, it is determined by the reward distribution alone, independently of what the agent has done. Second, the agent never observes $q_*(a)$ directly; every pull reveals only one noisy sample drawn from that distribution. The whole learning problem lives in this gap. From samples, the agent will build a running estimate $Q_t(a)$ and try to push it close to $q_*(a)$. To keep the two clearly separate, we call $q_*(a)$ the **true action-value** (the actual mean of arm $a$'s reward distribution), while $Q_t(a)$ is simply the **estimate** at time $t$. The asterisk (star) in $q_*$ is the standard way of marking "the true/optimal version" in RL notation; you will see it again in later chapters.
+
+The next chapter generalises this setting: with states and transitions, the value of an action depends not only on its immediate reward but also on what state it leads to. Bandits are the special case where there is only one state and the past does not constrain the future.
+
+## Measuring Performance: Cumulative Regret
+
+Average reward is intuitive, but bandit algorithms are usually compared by **regret**. Regret asks: how much reward did the agent fail to collect because it did not always pull the best arm?
+
+Let $a^* = \arg\max_a q_*(a)$ be an optimal arm, the one whose true action-value is highest. If the agent pulls action $A_t$ at time $t$, the expected one-step regret is the gap between that optimum and the value of the arm actually chosen:
+
+$$
+q_*(a^*) - q_*(A_t)
+$$
+
+The **cumulative regret** over $T$ steps is the sum of those gaps:
+
+$$
+\text{Regret}(T) = \sum_{t=1}^{T} \left(q_*(a^*) - q_*(A_t)\right)
+$$
+
+Low regret means the agent quickly identifies good arms and wastes fewer pulls on bad ones. Linear regret means the agent keeps making avoidable mistakes at a roughly constant rate. Sublinear regret means the mistakes accumulate more slowly than time; averaged per step, the regret goes down.
+
+This distinction matters because an exploration rule should not explore forever at the same intensity. Early uncertainty justifies trying many arms. Later, once the evidence is strong, the agent should spend most of its pulls exploiting.
+
+## Estimating Action Values from Samples
+
+Regret tells us what an algorithm should achieve; it does not tell us how. To act at all, the agent needs an estimate of each arm's value, and the simplest such estimate is the sample mean of observed rewards. The next few sections build up to concrete exploration-exploitation algorithms $\epsilon$-greedy, UCB, Thompson sampling, which are using this estimate to keep regret low.
+
+The simplest estimate of an arm's value is its sample mean. If action $a$ has been selected $N_t(a)$ times before time $t$, and the observed rewards from those pulls were $R_1, \ldots, R_{N_t(a)}$, then:
+
+$$
+Q_t(a) = \frac{1}{N_t(a)} \sum_{i=1}^{N_t(a)} R_i
+$$
+
+Here $Q_t(a)$ is the agent's current estimate of $q_*(a)$. In a stationary bandit, this estimate becomes more reliable as $N_t(a)$ grows. The catch is circular: to estimate an arm well, the agent must pull it; but to know which arms are worth pulling, the agent needs estimates.
+
+In code, the sample average can be updated incrementally, without storing every reward:
+
+```python
+def update_sample_average(old_value: float, count: int, reward: float) -> float:
+    """Incremental sample-average update Q_n = Q_{n-1} + (R_n - Q_{n-1}) / n."""
+    return old_value + (reward - old_value) / count
+```
+
+The term `reward - old_value` is the prediction error for that arm. The factor `1 / count` makes later observations move the estimate less than early observations, which is appropriate when the reward distribution is stationary.
+
+## $\epsilon$-Greedy: The Simplest Strategy
+
+The most direct exploration rule is **$\epsilon$-greedy**. With probability $1 - \epsilon$, act greedily by selecting an arm with maximal current estimate $Q_t(a)$ (exploitation). With probability $\epsilon$, ignore the estimates and choose a uniformly random arm (exploration).
+
+For a finite action set $\mathcal{A}$, the policy is:
+
+$$
+\pi(a) =
+\begin{cases}
+1 - \epsilon + \epsilon / |\mathcal{A}| & \text{if } a = \arg\max_{a'} Q_t(a') \\
+\epsilon / |\mathcal{A}| & \text{otherwise}
+\end{cases}
+$$
+
+This rule is useful because it is minimal. It guarantees that every arm has a nonzero chance of being sampled, while still spending most steps on the arm that currently looks best.
+
+Its weakness is also simple: if $\epsilon$ is fixed, the agent keeps exploring at the same rate forever. Even after it has identified the best arm, it still spends an $\epsilon$ fraction of steps on random actions. That produces **linear regret**: the cumulative cost of random pulls keeps growing in proportion to time.
+
+```python
+def select_epsilon_greedy(q_values: np.ndarray, epsilon: float, rng: np.random.Generator) -> int:
+    """Random action with probability epsilon, otherwise act greedily."""
+    if rng.random() < epsilon:
+        return int(rng.integers(len(q_values)))
+    return int(rng.choice(np.flatnonzero(q_values == q_values.max())))
+```
+
+
+## Decaying $\epsilon$-Greedy
+
+A natural fix is to decay exploration over time. Instead of a constant $\epsilon$, use a schedule $\epsilon_t$ that starts high and shrinks:
+
+$$
+\epsilon_t \propto \frac{1}{t}
+$$
+
+Early in training, the agent explores widely. Later, it behaves increasingly greedily. In stationary bandits this usually gives sublinear ($\log T$ or $\sqrt{T}$) regret empirically, because random pulls become rare quickly: their count grows like $\log T$, slower than $T$.
+
+```python
+def epsilon_schedule(step: int, c: float = 1.0) -> float:
+    """Decaying epsilon schedule: epsilon_t = min(1, c / (t + 1))."""
+    return min(1.0, c / (step + 1))
+```
+
+The proportionality constant $c$ matters in practice. With $c = 1$, the schedule decays so fast that the agent often locks onto a suboptimal arm before it has explored the others. Setting $c$ on the order of the number of arms $K$ keeps $\epsilon$ high enough during the first $\sim K$ steps for systematic sweeps.
+
+The exact decay schedule matters. A schedule that decays too quickly can lock onto a lucky but suboptimal arm. A schedule that decays too slowly behaves like fixed $\epsilon$-greedy for too long. The important idea for now is the direction: exploration should usually be high when estimates are uncertain and lower when the evidence has accumulated.
+
+## UCB: Optimism Under Uncertainty
+
+$\epsilon$-greedy explores randomly. It does not ask which arm is uncertain. **Upper Confidence Bound (UCB)** makes exploration directed: choose the arm with the best optimistic estimate.
+
+The UCB action rule is:
+
+$$
+A_t = \arg\max_a \left[ Q_t(a) + c \sqrt{\frac{\ln t}{N_t(a)}} \right]
+$$
+
+The first term, $Q_t(a)$, rewards arms with high observed mean reward. The second term is an exploration bonus. It is large when an arm has been pulled only a few times, and small when an arm has been pulled often.
+
+The shape of the bonus matters. The denominator $N_t(a)$ means uncertainty shrinks quickly for arms we sample repeatedly. The numerator $\ln t$ grows slowly with time, so arms that have been ignored for a long time gradually become attractive again. The constant $c$ controls how much optimism the agent uses.
+
+This is called **optimism in the face of uncertainty**. Instead of occasionally taking random actions, the agent behaves greedily with respect to an upper plausible value. If an uncertain arm might be good, UCB pulls it. If the arm disappoints, its sample count increases and its confidence bonus shrinks, making the same mistake less likely next time.
+
+In the canonical UCB1 form, the bonus is $\sqrt{2\ln t / N_t(a)}$ for rewards bounded in $[0, 1]$. We use the version with a tunable $c$ instead. The exact $\sqrt{2}$ comes from a specific regret-bound proof that we don't cover here, and in practice $c$ is treated as a hyperparameter to tune anyway.
+
+```python
+def select_ucb(q_values: np.ndarray, counts: np.ndarray, step: int, c: float) -> int:
+    """Upper-confidence-bound action selection for stationary bandits."""
+    untried_actions = np.flatnonzero(counts == 0)
+    if len(untried_actions) > 0:
+        return int(untried_actions[0])
+    bonus = c * np.sqrt(np.log(step + 1) / counts)
+    return int(np.argmax(q_values + bonus))
+```
+
+The first branch ensures every arm is tried at least once, so the denominator $N_t(a)$ is never zero. After that, the action is chosen by adding the confidence bonus to the current sample-average estimate.
+
+## Thompson Sampling
+
+UCB represents uncertainty with an explicit bonus. **Thompson sampling** takes a Bayesian route. It maintains a posterior distribution over each arm's mean reward. At each step:
+
+1. Sample one possible mean from each arm's posterior.
+2. Choose the arm with the highest sampled mean.
+3. Observe the reward and update that arm's posterior.
+
+For Bernoulli bandits, where each reward is either 0 or 1, a common choice is a Beta posterior for each arm. An arm with many successful pulls has a posterior concentrated near a high mean. An arm with few pulls has a wider posterior, so it sometimes samples an optimistic value and gets explored.
+
+The result is probability matching: arms are selected in proportion to how likely they are to be optimal under the current posterior. Like UCB, Thompson sampling explores more when uncertainty is high and naturally becomes greedier as evidence accumulates.
+
+```python
+def select_thompson(alpha: np.ndarray, beta: np.ndarray, rng: np.random.Generator) -> int:
+    """Sample from Beta posteriors and pick the arm with the best sample."""
+    samples = rng.beta(alpha, beta)
+    return int(np.argmax(samples))
+```
+
+`alpha` and `beta` are the per-arm Beta-posterior parameters (successes plus one and failures plus one); the function draws one sample from each posterior and returns the arm whose sample is largest.
+
+<Callout title="Bandits are not full RL" type="tip">
+Bandits teach exploration without temporal credit assignment. There is no delayed reward, no state visitation problem, and no Bellman equation. The next chapters add those pieces back: first the MDP formalism, then planning with dynamic programming, then model-free prediction and control.
+</Callout>
+
+## Experiment: Bernoulli Bandits
+
+The runnable example compares fixed $\epsilon$-greedy, decaying $\epsilon$-greedy, UCB, and Thompson sampling on stationary Bernoulli bandits. Each arm has a fixed probability of returning reward 1. The plot shows average cumulative regret across independently sampled bandit problems.
+
+Running it should show the qualitative pattern: fixed $\epsilon$-greedy continues paying a steady exploration cost, while decaying exploration, UCB, and Thompson sampling bend toward sublinear cumulative regret on stationary problems.
+
+## Full code
+
+The complete runnable example, including the Bernoulli bandit setup and regret plotting:
+[`multi-armed-bandits.py`](https://github.com/lubludrova/rl-handbook/blob/main/content/docs/01-value-based/multi-armed-bandits/multi-armed-bandits.py)
+
+## What Comes Next
+
+Bandits give us action values without states. The next chapter adds state dynamics and delayed consequences through Markov Decision Processes. Once states and transitions enter the picture, the value of an action is no longer just its immediate reward distribution; it also depends on where the action leads.
