@@ -13,7 +13,7 @@ interface Node {
 
 const MOBILE_BREAKPOINT = 768;
 
-type RenderMode = 'pending' | 'static' | 'canvas';
+type RenderMode = 'pending' | 'static' | 'mobile' | 'canvas';
 
 interface AnimationConfig {
   nodeCount: number;
@@ -28,6 +28,9 @@ interface AnimationConfig {
   nodeAlpha: number;
   pulseScale: number;
   traceAlpha: number;
+  fps: number;
+  dprCap: number;
+  enablePointer: boolean;
 }
 
 const DESKTOP_CONFIG: AnimationConfig = {
@@ -43,21 +46,27 @@ const DESKTOP_CONFIG: AnimationConfig = {
   nodeAlpha: 0.45,
   pulseScale: 0,
   traceAlpha: 0,
+  fps: 60,
+  dprCap: 2,
+  enablePointer: true,
 };
 
 const MOBILE_CONFIG: AnimationConfig = {
-  nodeCount: 42,
-  maxDist: 118,
+  nodeCount: 28,
+  maxDist: 110,
   pointerRadius: 96,
   pointerForce: 0.006,
   friction: 0.985,
   minSpeed: 0.08,
   jitter: 0.018,
-  lineAlpha: 0.36,
+  lineAlpha: 0.3,
   lineWidth: 0.75,
-  nodeAlpha: 0.5,
-  pulseScale: 0.8,
-  traceAlpha: 0.18,
+  nodeAlpha: 0.46,
+  pulseScale: 0.45,
+  traceAlpha: 0.08,
+  fps: 30,
+  dprCap: 1.5,
+  enablePointer: false,
 };
 
 /** Static SVG dot pattern shown for reduced-motion users */
@@ -116,6 +125,118 @@ function StaticNodePattern() {
   );
 }
 
+function MobileNodePattern() {
+  return (
+    <svg
+      className="pointer-events-none absolute inset-0 z-0 h-full w-full opacity-45"
+      viewBox="0 0 390 560"
+      preserveAspectRatio="xMidYMid slice"
+      xmlns="http://www.w3.org/2000/svg"
+      aria-hidden="true"
+    >
+      <style>
+        {`
+          .mobile-node-cluster-a {
+            animation: mobile-node-drift-a 12s ease-in-out infinite alternate;
+            transform-origin: 120px 210px;
+            transform-box: fill-box;
+          }
+
+          .mobile-node-cluster-b {
+            animation: mobile-node-drift-b 14s ease-in-out infinite alternate;
+            transform-origin: 270px 350px;
+            transform-box: fill-box;
+          }
+
+          .mobile-node-pulse {
+            animation: mobile-node-pulse 3s ease-in-out infinite alternate;
+          }
+
+          @keyframes mobile-node-drift-a {
+            from {
+              transform: translate(-8px, 4px) rotate(-1deg);
+            }
+
+            to {
+              transform: translate(10px, -7px) rotate(1.5deg);
+            }
+          }
+
+          @keyframes mobile-node-drift-b {
+            from {
+              transform: translate(7px, -6px) rotate(1deg);
+            }
+
+            to {
+              transform: translate(-10px, 8px) rotate(-1.4deg);
+            }
+          }
+
+          @keyframes mobile-node-pulse {
+            from {
+              opacity: 0.52;
+            }
+
+            to {
+              opacity: 0.8;
+            }
+          }
+        `}
+      </style>
+
+      <g className="mobile-node-cluster-a" fill="none" stroke="currentColor" strokeWidth="0.8">
+        <path d="M18 112L64 92L112 130L146 66L202 104L226 150L170 172L112 130L74 214L30 188" opacity="0.13" />
+        <path d="M64 92L146 66M112 130L132 190L170 172M202 104L226 150L170 172M74 214L138 250L170 172M30 188L74 214L138 250" opacity="0.09" />
+        <g fill="currentColor" stroke="none" opacity="0.48">
+          <circle cx="18" cy="112" r="3.5" />
+          <circle cx="64" cy="92" r="4.2" className="mobile-node-pulse" />
+          <circle cx="112" cy="130" r="3.2" />
+          <circle cx="132" cy="190" r="3" />
+          <circle cx="146" cy="66" r="4.6" />
+          <circle cx="202" cy="104" r="3.8" />
+          <circle cx="226" cy="150" r="3.1" />
+          <circle cx="170" cy="172" r="4.1" className="mobile-node-pulse" />
+          <circle cx="74" cy="214" r="3.4" />
+          <circle cx="30" cy="188" r="3.1" />
+          <circle cx="138" cy="250" r="4.3" />
+        </g>
+      </g>
+
+      <g className="mobile-node-cluster-b" fill="none" stroke="currentColor" strokeWidth="0.8">
+        <path d="M246 250L300 214L354 260L368 318L326 332L262 356L226 304L246 250" opacity="0.12" />
+        <path d="M300 214L326 332M354 260L368 318L326 332M246 250L286 286L326 332M226 304L262 356L326 332L354 260" opacity="0.08" />
+        <path d="M88 410L146 374L204 420L190 462L162 492L104 468L88 410" opacity="0.11" />
+        <path d="M146 374L162 492M204 420L190 462L162 492M88 410L128 438L204 420M104 468L128 438L162 492" opacity="0.075" />
+        <g fill="currentColor" stroke="none" opacity="0.46">
+          <circle cx="246" cy="250" r="3.3" />
+          <circle cx="286" cy="286" r="3" />
+          <circle cx="300" cy="214" r="4" />
+          <circle cx="354" cy="260" r="3.5" className="mobile-node-pulse" />
+          <circle cx="368" cy="318" r="3.2" />
+          <circle cx="326" cy="332" r="4.4" />
+          <circle cx="262" cy="356" r="3.7" />
+          <circle cx="226" cy="304" r="3.2" />
+          <circle cx="88" cy="410" r="3.3" />
+          <circle cx="128" cy="438" r="3.1" />
+          <circle cx="146" cy="374" r="4.5" className="mobile-node-pulse" />
+          <circle cx="204" cy="420" r="3.8" />
+          <circle cx="190" cy="462" r="3.2" />
+          <circle cx="162" cy="492" r="4.1" />
+          <circle cx="104" cy="468" r="3.6" />
+        </g>
+      </g>
+
+      <g fill="currentColor" opacity="0.22">
+        <circle cx="354" cy="88" r="2.2" className="mobile-node-pulse" />
+        <circle cx="28" cy="316" r="2.5" />
+        <circle cx="320" cy="498" r="2.1" />
+        <circle cx="54" cy="526" r="2.3" />
+        <circle cx="376" cy="438" r="2" />
+      </g>
+    </svg>
+  );
+}
+
 export function HeroCanvas() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const frameRef = useRef<number | null>(null);
@@ -124,6 +245,8 @@ export function HeroCanvas() {
   const dimensionsRef = useRef({ w: 0, h: 0 });
   const nodesRef = useRef<Node[]>([]);
   const pointerRef = useRef({ x: -9999, y: -9999, speed: 0 });
+  const fgColorRef = useRef('0, 0, 0');
+  const lastFrameTimeRef = useRef(0);
   const [renderMode, setRenderMode] = useState<RenderMode>('pending');
 
   const pad = 10;
@@ -150,6 +273,10 @@ export function HeroCanvas() {
     return width < MOBILE_BREAKPOINT ? MOBILE_CONFIG : DESKTOP_CONFIG;
   }, []);
 
+  const updateFgColor = useCallback(() => {
+    fgColorRef.current = getFgColor();
+  }, [getFgColor]);
+
   const resizeCanvas = useCallback(() => {
     const canvas = canvasRef.current;
     const parent = canvas?.parentElement;
@@ -158,14 +285,15 @@ export function HeroCanvas() {
     const rect = parent.getBoundingClientRect();
     const nextWidth = rect.width;
     const nextHeight = rect.height;
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const config = getAnimationConfig(nextWidth);
+    const dpr = Math.min(window.devicePixelRatio || 1, config.dprCap);
 
     dimensionsRef.current = { w: nextWidth, h: nextHeight };
     canvas.width = Math.round(nextWidth * dpr);
     canvas.height = Math.round(nextHeight * dpr);
 
     return nextWidth > pad * 2 && nextHeight > pad * 2;
-  }, [pad]);
+  }, [getAnimationConfig, pad]);
 
   const initNodes = useCallback(() => {
     const { w, h } = dimensionsRef.current;
@@ -186,21 +314,27 @@ export function HeroCanvas() {
     nodesRef.current = nodes;
   }, [getAnimationConfig, pad]);
 
-  const onPointerMove = useCallback((e: PointerEvent) => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
+  const onPointerMove = useCallback(
+    (e: PointerEvent) => {
+      const canvas = canvasRef.current;
+      if (!canvas) return;
 
-    const rect = canvas.getBoundingClientRect();
-    const newX = e.clientX - rect.left;
-    const newY = e.clientY - rect.top;
-    const pointer = pointerRef.current;
-    const dx = newX - pointer.x;
-    const dy = newY - pointer.y;
+      const config = getAnimationConfig(dimensionsRef.current.w);
+      if (!config.enablePointer || e.pointerType === 'touch') return;
 
-    pointer.speed = Math.sqrt(dx * dx + dy * dy);
-    pointer.x = newX;
-    pointer.y = newY;
-  }, []);
+      const rect = canvas.getBoundingClientRect();
+      const newX = e.clientX - rect.left;
+      const newY = e.clientY - rect.top;
+      const pointer = pointerRef.current;
+      const dx = newX - pointer.x;
+      const dy = newY - pointer.y;
+
+      pointer.speed = Math.sqrt(dx * dx + dy * dy);
+      pointer.x = newX;
+      pointer.y = newY;
+    },
+    [getAnimationConfig],
+  );
 
   const onPointerLeave = useCallback(() => {
     pointerRef.current.x = -9999;
@@ -222,8 +356,18 @@ export function HeroCanvas() {
     const pointer = pointerRef.current;
     const isMobile = w < MOBILE_BREAKPOINT;
     const config = getAnimationConfig(w);
+    const now = performance.now();
+    const minFrameMs = 1000 / config.fps;
+
+    if (lastFrameTimeRef.current > 0 && now - lastFrameTimeRef.current < minFrameMs) {
+      frameRef.current = requestAnimationFrame(drawFrame);
+      return;
+    }
+
+    lastFrameTimeRef.current = now;
+
     const maxDistSq = config.maxDist * config.maxDist;
-    const elapsed = performance.now() * 0.001;
+    const elapsed = now * 0.001;
     const hasPointer = pointer.x > -1000 && pointer.y > -1000;
     const focus = hasPointer
       ? pointer
@@ -233,10 +377,10 @@ export function HeroCanvas() {
           speed: isMobile ? 3.5 : 0,
         };
 
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const dpr = Math.min(window.devicePixelRatio || 1, config.dprCap);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, w, h);
-    const fg = getFgColor();
+    const fg = fgColorRef.current;
 
     pointer.speed *= 0.92;
 
@@ -338,11 +482,18 @@ export function HeroCanvas() {
     }
 
     frameRef.current = requestAnimationFrame(drawFrame);
-  }, [getAnimationConfig, getFgColor, pad]);
+  }, [getAnimationConfig, pad]);
 
   const updateRenderMode = useCallback(() => {
     const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    setRenderMode(prefersReducedMotion ? 'static' : 'canvas');
+    const isMobile = window.innerWidth < MOBILE_BREAKPOINT;
+
+    if (prefersReducedMotion) {
+      setRenderMode('static');
+      return;
+    }
+
+    setRenderMode(isMobile ? 'mobile' : 'canvas');
   }, []);
 
   useEffect(() => {
@@ -388,11 +539,24 @@ export function HeroCanvas() {
       return;
     }
 
-    initNodes();
-    drawFrame();
-
     const canvas = canvasRef.current;
     const parent = canvas?.parentElement;
+    const hasFinePointer = window.matchMedia('(hover: hover) and (pointer: fine)').matches;
+
+    const startAnimation = () => {
+      if (frameRef.current !== null) return;
+      lastFrameTimeRef.current = 0;
+      drawFrame();
+    };
+
+    const stopAnimation = () => {
+      cancelFrame();
+      lastFrameTimeRef.current = 0;
+    };
+
+    updateFgColor();
+    initNodes();
+    startAnimation();
 
     const handleResize = () => {
       if (canvasResizeTimeoutRef.current !== null) {
@@ -408,19 +572,46 @@ export function HeroCanvas() {
         }
 
         initNodes();
+        updateFgColor();
       }, resizeDebounceMs);
     };
 
-    parent?.addEventListener('pointermove', onPointerMove);
-    parent?.addEventListener('pointerleave', onPointerLeave);
-    parent?.addEventListener('pointercancel', onPointerLeave);
+    const shouldTrackPointer =
+      hasFinePointer && getAnimationConfig(dimensionsRef.current.w).enablePointer;
+
+    if (shouldTrackPointer) {
+      parent?.addEventListener('pointermove', onPointerMove, { passive: true });
+      parent?.addEventListener('pointerleave', onPointerLeave);
+      parent?.addEventListener('pointercancel', onPointerLeave);
+    }
+
+    const observer = parent
+      ? new IntersectionObserver(
+          ([entry]) => {
+            if (entry.isIntersecting) {
+              startAnimation();
+            } else {
+              stopAnimation();
+            }
+          },
+          { rootMargin: '160px 0px' },
+        )
+      : null;
+
+    if (parent) observer?.observe(parent);
+
     window.addEventListener('resize', handleResize);
 
     return () => {
       cancelFrame();
-      parent?.removeEventListener('pointermove', onPointerMove);
-      parent?.removeEventListener('pointerleave', onPointerLeave);
-      parent?.removeEventListener('pointercancel', onPointerLeave);
+      observer?.disconnect();
+
+      if (shouldTrackPointer) {
+        parent?.removeEventListener('pointermove', onPointerMove);
+        parent?.removeEventListener('pointerleave', onPointerLeave);
+        parent?.removeEventListener('pointercancel', onPointerLeave);
+      }
+
       window.removeEventListener('resize', handleResize);
 
       if (canvasResizeTimeoutRef.current !== null) {
@@ -428,16 +619,28 @@ export function HeroCanvas() {
         canvasResizeTimeoutRef.current = null;
       }
     };
-  }, [cancelFrame, drawFrame, initNodes, onPointerLeave, onPointerMove, renderMode, resizeCanvas]);
+  }, [
+    cancelFrame,
+    drawFrame,
+    getAnimationConfig,
+    initNodes,
+    onPointerLeave,
+    onPointerMove,
+    renderMode,
+    resizeCanvas,
+    updateFgColor,
+  ]);
 
   if (renderMode === 'pending') return null;
 
   if (renderMode === 'static') return <StaticNodePattern />;
+  if (renderMode === 'mobile') return <MobileNodePattern />;
 
   return (
     <canvas
       ref={canvasRef}
-      className="absolute inset-0 z-0 h-full w-full opacity-45 will-change-transform"
+      className="pointer-events-none absolute inset-0 z-0 h-full w-full opacity-45"
+      aria-hidden="true"
     />
   );
 }
