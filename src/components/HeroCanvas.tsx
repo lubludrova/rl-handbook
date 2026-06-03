@@ -8,13 +8,59 @@ interface Node {
   vx: number;
   vy: number;
   r: number;
+  phase: number;
 }
 
 const MOBILE_BREAKPOINT = 768;
 
 type RenderMode = 'pending' | 'static' | 'canvas';
 
-/** Static SVG dot pattern shown on mobile instead of the animated canvas */
+interface AnimationConfig {
+  nodeCount: number;
+  maxDist: number;
+  pointerRadius: number;
+  pointerForce: number;
+  friction: number;
+  minSpeed: number;
+  jitter: number;
+  lineAlpha: number;
+  lineWidth: number;
+  nodeAlpha: number;
+  pulseScale: number;
+  traceAlpha: number;
+}
+
+const DESKTOP_CONFIG: AnimationConfig = {
+  nodeCount: 90,
+  maxDist: 160,
+  pointerRadius: 120,
+  pointerForce: 0.02,
+  friction: 0.99,
+  minSpeed: 0.15,
+  jitter: 0.04,
+  lineAlpha: 0.3,
+  lineWidth: 0.8,
+  nodeAlpha: 0.45,
+  pulseScale: 0,
+  traceAlpha: 0,
+};
+
+const MOBILE_CONFIG: AnimationConfig = {
+  nodeCount: 42,
+  maxDist: 118,
+  pointerRadius: 96,
+  pointerForce: 0.006,
+  friction: 0.985,
+  minSpeed: 0.08,
+  jitter: 0.018,
+  lineAlpha: 0.36,
+  lineWidth: 0.75,
+  nodeAlpha: 0.5,
+  pulseScale: 0.8,
+  traceAlpha: 0.18,
+};
+
+/** Static SVG dot pattern shown for reduced-motion users */
 function StaticNodePattern() {
   return (
     <svg
@@ -73,18 +119,14 @@ function StaticNodePattern() {
 export function HeroCanvas() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const frameRef = useRef<number | null>(null);
-  const resizeTimeoutRef = useRef<number | null>(null);
+  const modeResizeTimeoutRef = useRef<number | null>(null);
+  const canvasResizeTimeoutRef = useRef<number | null>(null);
   const dimensionsRef = useRef({ w: 0, h: 0 });
   const nodesRef = useRef<Node[]>([]);
-  const mouseRef = useRef({ x: -9999, y: -9999, speed: 0 });
+  const pointerRef = useRef({ x: -9999, y: -9999, speed: 0 });
   const [renderMode, setRenderMode] = useState<RenderMode>('pending');
 
   const pad = 10;
-  const mouseRadius = 120;
-  const mouseForce = 0.02;
-  const maxDist = 160;
-  const maxDistSq = maxDist * maxDist;
-  const nodeCount = 90;
   const resizeDebounceMs = 120;
 
   const cancelFrame = useCallback(() => {
@@ -104,6 +146,10 @@ export function HeroCanvas() {
     return '0, 0, 0';
   }, []);
 
+  const getAnimationConfig = useCallback((width: number): AnimationConfig => {
+    return width < MOBILE_BREAKPOINT ? MOBILE_CONFIG : DESKTOP_CONFIG;
+  }, []);
+
   const resizeCanvas = useCallback(() => {
     const canvas = canvasRef.current;
     const parent = canvas?.parentElement;
@@ -112,51 +158,54 @@ export function HeroCanvas() {
     const rect = parent.getBoundingClientRect();
     const nextWidth = rect.width;
     const nextHeight = rect.height;
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
 
     dimensionsRef.current = { w: nextWidth, h: nextHeight };
-    canvas.width = nextWidth;
-    canvas.height = nextHeight;
+    canvas.width = Math.round(nextWidth * dpr);
+    canvas.height = Math.round(nextHeight * dpr);
 
     return nextWidth > pad * 2 && nextHeight > pad * 2;
   }, [pad]);
 
   const initNodes = useCallback(() => {
     const { w, h } = dimensionsRef.current;
+    const config = getAnimationConfig(w);
     const nodes: Node[] = [];
 
-    for (let i = 0; i < nodeCount; i++) {
+    for (let i = 0; i < config.nodeCount; i++) {
       nodes.push({
         x: pad + Math.random() * (w - pad * 2),
         y: pad + Math.random() * (h - pad * 2),
-        vx: (Math.random() - 0.5) * 0.3,
-        vy: (Math.random() - 0.5) * 0.3,
+        vx: (Math.random() - 0.5) * (w < MOBILE_BREAKPOINT ? 0.16 : 0.3),
+        vy: (Math.random() - 0.5) * (w < MOBILE_BREAKPOINT ? 0.16 : 0.3),
         r: Math.random() * 2.5 + 1.5,
+        phase: Math.random() * Math.PI * 2,
       });
     }
 
     nodesRef.current = nodes;
-  }, [nodeCount, pad]);
+  }, [getAnimationConfig, pad]);
 
-  const onMouseMove = useCallback((e: MouseEvent) => {
+  const onPointerMove = useCallback((e: PointerEvent) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
     const rect = canvas.getBoundingClientRect();
     const newX = e.clientX - rect.left;
     const newY = e.clientY - rect.top;
-    const mouse = mouseRef.current;
-    const dx = newX - mouse.x;
-    const dy = newY - mouse.y;
+    const pointer = pointerRef.current;
+    const dx = newX - pointer.x;
+    const dy = newY - pointer.y;
 
-    mouse.speed = Math.sqrt(dx * dx + dy * dy);
-    mouse.x = newX;
-    mouse.y = newY;
+    pointer.speed = Math.sqrt(dx * dx + dy * dy);
+    pointer.x = newX;
+    pointer.y = newY;
   }, []);
 
-  const onMouseLeave = useCallback(() => {
-    mouseRef.current.x = -9999;
-    mouseRef.current.y = -9999;
-    mouseRef.current.speed = 0;
+  const onPointerLeave = useCallback(() => {
+    pointerRef.current.x = -9999;
+    pointerRef.current.y = -9999;
+    pointerRef.current.speed = 0;
   }, []);
 
   const drawFrame = useCallback(() => {
@@ -170,32 +219,51 @@ export function HeroCanvas() {
 
     const { w, h } = dimensionsRef.current;
     const nodes = nodesRef.current;
-    const mouse = mouseRef.current;
+    const pointer = pointerRef.current;
+    const isMobile = w < MOBILE_BREAKPOINT;
+    const config = getAnimationConfig(w);
+    const maxDistSq = config.maxDist * config.maxDist;
+    const elapsed = performance.now() * 0.001;
+    const hasPointer = pointer.x > -1000 && pointer.y > -1000;
+    const focus = hasPointer
+      ? pointer
+      : {
+          x: w * (0.5 + Math.sin(elapsed * 0.34) * 0.32),
+          y: h * (0.5 + Math.cos(elapsed * 0.27) * 0.22),
+          speed: isMobile ? 3.5 : 0,
+        };
 
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, w, h);
     const fg = getFgColor();
 
-    mouse.speed *= 0.92;
+    pointer.speed *= 0.92;
 
     for (const n of nodes) {
-      const mdx = n.x - mouse.x;
-      const mdy = n.y - mouse.y;
+      const mdx = n.x - focus.x;
+      const mdy = n.y - focus.y;
       const mDist = Math.sqrt(mdx * mdx + mdy * mdy);
 
-      if (mDist < mouseRadius && mDist > 0) {
-        const speedMult = Math.min(mouse.speed / 3, 8);
-        const force = (1 - mDist / mouseRadius) * mouseForce * speedMult;
+      if (mDist < config.pointerRadius && mDist > 0) {
+        const speedMult = hasPointer ? Math.min(pointer.speed / 3, 8) : 1;
+        const force = (1 - mDist / config.pointerRadius) * config.pointerForce * speedMult;
         n.vx += (mdx / mDist) * force;
         n.vy += (mdy / mDist) * force;
+
+        if (isMobile && !hasPointer) {
+          n.vx += (-mdy / mDist) * force * 0.7;
+          n.vy += (mdx / mDist) * force * 0.7;
+        }
       }
 
-      n.vx *= 0.99;
-      n.vy *= 0.99;
+      n.vx *= config.friction;
+      n.vy *= config.friction;
 
       const speed = Math.sqrt(n.vx * n.vx + n.vy * n.vy);
-      if (speed < 0.15) {
-        n.vx += (Math.random() - 0.5) * 0.04;
-        n.vy += (Math.random() - 0.5) * 0.04;
+      if (speed < config.minSpeed) {
+        n.vx += (Math.random() - 0.5) * config.jitter;
+        n.vy += (Math.random() - 0.5) * config.jitter;
       }
 
       n.x += n.vx;
@@ -208,8 +276,8 @@ export function HeroCanvas() {
       n.y = Math.max(pad, Math.min(h - pad, n.y));
     }
 
-    ctx.strokeStyle = `rgba(${fg}, 0.3)`;
-    ctx.lineWidth = 0.8;
+    ctx.strokeStyle = `rgba(${fg}, 1)`;
+    ctx.lineWidth = config.lineWidth;
 
     for (let i = 0; i < nodes.length; i++) {
       const a = nodes[i];
@@ -217,16 +285,16 @@ export function HeroCanvas() {
       for (let j = i + 1; j < nodes.length; j++) {
         const b = nodes[j];
         const dx = a.x - b.x;
-        if (Math.abs(dx) >= maxDist) continue;
+        if (Math.abs(dx) >= config.maxDist) continue;
 
         const dy = a.y - b.y;
-        if (Math.abs(dy) >= maxDist) continue;
+        if (Math.abs(dy) >= config.maxDist) continue;
 
         const distSq = dx * dx + dy * dy;
         if (distSq >= maxDistSq) continue;
 
         const dist = Math.sqrt(distSq);
-        ctx.globalAlpha = 1 - dist / maxDist;
+        ctx.globalAlpha = (1 - dist / config.maxDist) * config.lineAlpha;
         ctx.beginPath();
         ctx.moveTo(a.x, a.y);
         ctx.lineTo(b.x, b.y);
@@ -234,22 +302,47 @@ export function HeroCanvas() {
       }
     }
 
+    if (isMobile && config.traceAlpha > 0) {
+      let traces = 0;
+
+      for (const n of nodes) {
+        const dx = n.x - focus.x;
+        const dy = n.y - focus.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        const traceDist = config.maxDist * 0.9;
+
+        if (dist >= traceDist) continue;
+
+        ctx.globalAlpha = (1 - dist / traceDist) * config.traceAlpha;
+        ctx.beginPath();
+        ctx.moveTo(focus.x, focus.y);
+        ctx.lineTo(n.x, n.y);
+        ctx.stroke();
+
+        traces += 1;
+        if (traces >= 6) break;
+      }
+    }
+
     ctx.globalAlpha = 1;
-    ctx.fillStyle = `rgba(${fg}, 0.45)`;
+    ctx.fillStyle = `rgba(${fg}, ${config.nodeAlpha})`;
 
     for (const n of nodes) {
+      const pulse = config.pulseScale
+        ? Math.sin(elapsed * 1.5 + n.phase) * config.pulseScale
+        : 0;
+
       ctx.beginPath();
-      ctx.arc(n.x, n.y, n.r, 0, Math.PI * 2);
+      ctx.arc(n.x, n.y, Math.max(0.8, n.r + pulse), 0, Math.PI * 2);
       ctx.fill();
     }
 
     frameRef.current = requestAnimationFrame(drawFrame);
-  }, [getFgColor, maxDist, maxDistSq, mouseForce, mouseRadius, pad]);
+  }, [getAnimationConfig, getFgColor, pad]);
 
   const updateRenderMode = useCallback(() => {
     const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    const isMobile = window.innerWidth < MOBILE_BREAKPOINT;
-    setRenderMode(prefersReducedMotion || isMobile ? 'static' : 'canvas');
+    setRenderMode(prefersReducedMotion ? 'static' : 'canvas');
   }, []);
 
   useEffect(() => {
@@ -257,12 +350,12 @@ export function HeroCanvas() {
 
     const mediaQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
     const handleViewportChange = () => {
-      if (resizeTimeoutRef.current !== null) {
-        window.clearTimeout(resizeTimeoutRef.current);
+      if (modeResizeTimeoutRef.current !== null) {
+        window.clearTimeout(modeResizeTimeoutRef.current);
       }
 
-      resizeTimeoutRef.current = window.setTimeout(() => {
-        resizeTimeoutRef.current = null;
+      modeResizeTimeoutRef.current = window.setTimeout(() => {
+        modeResizeTimeoutRef.current = null;
         updateRenderMode();
       }, resizeDebounceMs);
     };
@@ -278,9 +371,9 @@ export function HeroCanvas() {
       window.removeEventListener('resize', handleViewportChange);
       mediaQuery.removeEventListener('change', handleMotionChange);
 
-      if (resizeTimeoutRef.current !== null) {
-        window.clearTimeout(resizeTimeoutRef.current);
-        resizeTimeoutRef.current = null;
+      if (modeResizeTimeoutRef.current !== null) {
+        window.clearTimeout(modeResizeTimeoutRef.current);
+        modeResizeTimeoutRef.current = null;
       }
     };
   }, [updateRenderMode]);
@@ -302,12 +395,12 @@ export function HeroCanvas() {
     const parent = canvas?.parentElement;
 
     const handleResize = () => {
-      if (resizeTimeoutRef.current !== null) {
-        window.clearTimeout(resizeTimeoutRef.current);
+      if (canvasResizeTimeoutRef.current !== null) {
+        window.clearTimeout(canvasResizeTimeoutRef.current);
       }
 
-      resizeTimeoutRef.current = window.setTimeout(() => {
-        resizeTimeoutRef.current = null;
+      canvasResizeTimeoutRef.current = window.setTimeout(() => {
+        canvasResizeTimeoutRef.current = null;
 
         if (!resizeCanvas()) {
           cancelFrame();
@@ -318,22 +411,24 @@ export function HeroCanvas() {
       }, resizeDebounceMs);
     };
 
-    parent?.addEventListener('mousemove', onMouseMove);
-    parent?.addEventListener('mouseleave', onMouseLeave);
+    parent?.addEventListener('pointermove', onPointerMove);
+    parent?.addEventListener('pointerleave', onPointerLeave);
+    parent?.addEventListener('pointercancel', onPointerLeave);
     window.addEventListener('resize', handleResize);
 
     return () => {
       cancelFrame();
-      parent?.removeEventListener('mousemove', onMouseMove);
-      parent?.removeEventListener('mouseleave', onMouseLeave);
+      parent?.removeEventListener('pointermove', onPointerMove);
+      parent?.removeEventListener('pointerleave', onPointerLeave);
+      parent?.removeEventListener('pointercancel', onPointerLeave);
       window.removeEventListener('resize', handleResize);
 
-      if (resizeTimeoutRef.current !== null) {
-        window.clearTimeout(resizeTimeoutRef.current);
-        resizeTimeoutRef.current = null;
+      if (canvasResizeTimeoutRef.current !== null) {
+        window.clearTimeout(canvasResizeTimeoutRef.current);
+        canvasResizeTimeoutRef.current = null;
       }
     };
-  }, [cancelFrame, drawFrame, initNodes, onMouseLeave, onMouseMove, renderMode, resizeCanvas]);
+  }, [cancelFrame, drawFrame, initNodes, onPointerLeave, onPointerMove, renderMode, resizeCanvas]);
 
   if (renderMode === 'pending') return null;
 
@@ -342,7 +437,7 @@ export function HeroCanvas() {
   return (
     <canvas
       ref={canvasRef}
-      className="absolute inset-0 z-0 opacity-45 will-change-transform"
+      className="absolute inset-0 z-0 h-full w-full opacity-45 will-change-transform"
     />
   );
 }

@@ -132,12 +132,11 @@ export default function HomePage() {
       >
         <HeroCanvas />
 
-        <div className="relative z-10 text-center px-4 sm:px-6" style={{ maxWidth: 720 }}>
+        <div className="relative z-10 w-full max-w-[720px] min-w-0 text-center px-4 sm:px-6">
           <h1
-            className="font-heading font-bold leading-none"
+            className="font-heading font-bold leading-none text-[2.5rem] sm:text-[4.5rem]"
             style={{
-              fontSize: 'clamp(2.8rem, 5vw, 4.5rem)',
-              letterSpacing: '-0.03em',
+              letterSpacing: 0,
               color: 'var(--color-fd-foreground)',
             }}
           >
@@ -145,7 +144,7 @@ export default function HomePage() {
           </h1>
 
           <p
-            className="font-body font-light mt-5"
+            className="font-body font-light mt-5 mx-auto max-w-[34rem]"
             style={{
               fontSize: '1.15rem',
               lineHeight: 1.6,

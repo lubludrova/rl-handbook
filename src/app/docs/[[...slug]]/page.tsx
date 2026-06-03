@@ -1,6 +1,7 @@
 import { getPageImage, source } from '@/lib/source';
 import { JsonLd } from '@/components/JsonLd';
 import { ArticleFeedback } from '@/components/ArticleFeedback';
+import { EngagedReaderPrompt } from '@/components/EngagedReaderPrompt';
 import {
   DocsBody,
   DocsDescription,
@@ -78,6 +79,7 @@ export default async function Page(props: PageProps<'/docs/[[...slug]]'>) {
           })}
         />
       </DocsBody>
+      <EngagedReaderPrompt url={pageUrl} title={page.data.title} />
       <JsonLd id={`article-json-ld-${params.slug.join('-')}`} data={articleSchema} />
     </DocsPage>
   );

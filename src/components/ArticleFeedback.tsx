@@ -1,29 +1,11 @@
 'use client';
 
-import { gitConfig } from '@/lib/layout.shared';
+import { getArticleFeedbackIssueUrl } from '@/lib/feedback';
 import { useState } from 'react';
 
 export function ArticleFeedback({ url, title }: { url: string; title: string }) {
   const [clicked, setClicked] = useState(false);
-
-  const issueBody = [
-    `Page: ${url}`,
-    `Chapter: ${title}`,
-    '',
-    'What should be improved?',
-    '',
-    '',
-    'Suggested correction:',
-    '',
-  ].join('\n');
-
-  const params = new URLSearchParams({
-    title: `Feedback: ${title}`,
-    body: issueBody,
-    labels: 'feedback',
-  });
-
-  const issueUrl = `https://github.com/${gitConfig.user}/${gitConfig.repo}/issues/new?${params.toString()}`;
+  const issueUrl = getArticleFeedbackIssueUrl({ url, title });
 
   return (
     <a
