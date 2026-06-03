@@ -40,7 +40,7 @@ const bookSchema = {
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
   title: {
-    default: 'RL Handbook',
+    default: 'RL Handbook: Reinforcement Learning Guide',
     template: '%s | RL Handbook',
   },
   description: 'A comprehensive guide to Reinforcement Learning',
@@ -71,13 +71,13 @@ export const metadata: Metadata = {
     type: 'website',
     url: siteUrl,
     siteName: 'RL Handbook',
-    title: 'RL Handbook',
+    title: 'RL Handbook: Reinforcement Learning Guide',
     description: 'A comprehensive guide to Reinforcement Learning',
     locale: 'en_US',
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'RL Handbook',
+    title: 'RL Handbook: Reinforcement Learning Guide',
     description: 'A comprehensive guide to Reinforcement Learning',
   },
 };
