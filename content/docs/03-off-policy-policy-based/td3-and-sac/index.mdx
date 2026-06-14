@@ -563,6 +563,11 @@ The papers compared against each other in slightly different historical versions
 The complete runnable example implements SAC on `Pendulum-v1`, including a squashed Gaussian actor, twin soft critics, automatic temperature tuning, and Polyak target updates:
 [`sac.py`](https://github.com/lubludrova/rl-handbook/blob/main/content/docs/03-off-policy-policy-based/td3-and-sac/sac.py)
 
+You may also find these implementations useful:
+- [OpenAI Spinning Up: PyTorch TD3](https://github.com/openai/spinningup/tree/master/spinup/algos/pytorch/td3)
+- [OpenAI Spinning Up: PyTorch SAC](https://github.com/openai/spinningup/tree/master/spinup/algos/pytorch/sac)
+- [Boyu AI: SAC](https://github.com/boyu-ai/Hands-on-RL/blob/main/第14章-SAC算法.ipynb)
+
 ## What Comes Next
 
 TD3 and SAC close the off-policy actor-critic line. So far every algorithm we have covered, from Q-learning to SAC, is model-free: it learns a value function or a policy from sampled transitions without ever predicting where the environment will go next. The next chapters take the opposite path. Instead of treating the dynamics as a black box, model-based methods learn (or assume) a model of $p(s' \mid s, a)$ and use it for planning. That single change reshuffles the design space: replay becomes optional, planning rolls out in imagination, and the exploration question changes shape.

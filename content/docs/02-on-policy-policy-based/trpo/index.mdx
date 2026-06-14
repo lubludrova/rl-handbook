@@ -172,7 +172,12 @@ The full TRPO loop, then, is: collect rollouts with the current policy, estimate
 
 ## Full code
 
-Honestly, we are skipping a runnable example here. A toy TRPO with Fisher-vector products, conjugate gradient, and a line search is a small project on its own, and the short version tends to behave badly on neural-network policies anyway, which is exactly the case TRPO is supposed to handle. Since nobody really trains with TRPO in practice these days, we are spending that effort on PPO instead. If you want to see a clean full implementation, [ikostrikov/pytorch-trpo](https://github.com/ikostrikov/pytorch-trpo) is a good place to look.
+Honestly, we are skipping a runnable example here. A toy TRPO with Fisher-vector products, conjugate gradient, and a line search is a small project on its own, and the short version tends to behave badly on neural-network policies anyway, which is exactly the case TRPO is supposed to handle. Since nobody really trains with TRPO in practice these days, we are spending that effort on PPO instead.
+
+But you may find these implementations useful:
+- [ikostrikov/pytorch-trpo](https://github.com/ikostrikov/pytorch-trpo)
+- [OpenAI Spinning Up: PyTorch TRPO](https://github.com/openai/spinningup/tree/master/spinup/algos/pytorch/trpo)
+- [Yandex Practical RL: TRPO Seminar](https://github.com/yandexdataschool/Practical_RL/blob/master/week09_policy_II/seminar_TRPO_pytorch.ipynb)
 
 ## What Comes Next
 

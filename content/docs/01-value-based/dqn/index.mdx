@@ -190,6 +190,10 @@ The experiment uses 600 episodes with a hidden dimension of 128, learning rate $
 The complete runnable example, including a replay buffer, target network update, and CartPole DQN training:
 [`dqn.py`](https://github.com/lubludrova/rl-handbook/blob/main/content/docs/01-value-based/dqn/dqn.py)
 
+You may also find these implementations useful:
+- [Yandex Practical RL: DQN Seminar](https://github.com/yandexdataschool/Practical_RL/blob/master/week04_approx_rl/seminar_pytorch.ipynb)
+- [Boyu AI: DQN](https://github.com/boyu-ai/Hands-on-RL/blob/main/第7章-DQN算法.ipynb)
+
 ## What Comes Next
 
 DQN made deep value-based RL work by adding replay and target networks to neural Q-learning. The next chapter studies the failure modes that remain: overestimation bias, inefficient uniform replay, and scalar value targets. Each DQN improvement changes one part of the vanilla recipe.

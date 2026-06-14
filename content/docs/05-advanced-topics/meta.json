@@ -2,10 +2,9 @@
   "title": "Advanced Topics",
   "defaultOpen": true,
   "pages": [
-	"rl-sequence-generation-and-rlhf",
     "imitation-learning",
     "offline-rl",
-    "exploration",
+    "rl-sequence-generation-and-rlhf",
     "goal-conditioned-rl",
     "multi-agent-rl"
   ]

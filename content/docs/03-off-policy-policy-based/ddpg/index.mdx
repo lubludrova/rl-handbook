@@ -241,6 +241,11 @@ There is also a practical sensitivity issue. The original paper used batch norma
 The complete runnable example, including a replay buffer, deterministic actor, Q-critic, action noise, and Polyak target updates:
 [`ddpg.py`](https://github.com/lubludrova/rl-handbook/blob/main/content/docs/03-off-policy-policy-based/ddpg/ddpg.py)
 
+You may also find these implementations useful:
+- [OpenAI Spinning Up: PyTorch DDPG](https://github.com/openai/spinningup/tree/master/spinup/algos/pytorch/ddpg)
+- [Boyu AI: DDPG](https://github.com/boyu-ai/Hands-on-RL/blob/main/第13章-DDPG算法.ipynb)
+- [VachanVY: DDPG](https://github.com/VachanVY/Reinforcement-Learning/blob/main/deep_deterministic_policy_gradients_ddpg.py)
+
 ## What Comes Next
 
 The next chapter keeps the DDPG template and fixes its main weaknesses. TD3 reduces critic overestimation with twin critics, delays actor updates so the critic has more time to learn, and smooths target actions so the actor cannot exploit sharp value spikes. SAC then takes the stochastic route: put exploration into the policy itself and optimize a maximum-entropy objective.

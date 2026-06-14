@@ -204,6 +204,11 @@ Stepping back, PPO is not the most sample-efficient method in every setting: off
 The complete runnable example, including CartPole rollouts, GAE, old log-prob storage, minibatch updates, and the PPO-Clip loss:
 [`ppo.py`](https://github.com/lubludrova/rl-handbook/blob/main/content/docs/02-on-policy-policy-based/ppo/ppo.py)
 
+You may also find these implementations useful:
+- [OpenAI Spinning Up: PyTorch PPO](https://github.com/openai/spinningup/tree/master/spinup/algos/pytorch/ppo)
+- [Yandex Practical RL: PPO](https://github.com/yandexdataschool/Practical_RL/blob/master/week09_policy_II/ppo.ipynb)
+- [Boyu AI: PPO](https://github.com/boyu-ai/Hands-on-RL/blob/main/第12章-PPO算法.ipynb)
+
 ## What Comes Next
 
 PPO closes the on-policy policy-based line for now: collect fresh rollouts, estimate advantages, take several clipped SGD epochs, then discard the batch. The next chapters ask a different question: can we build actor-critic methods but as off-policy algorithms? DDPG, TD3, and SAC introduced in the next chapters answer this question.

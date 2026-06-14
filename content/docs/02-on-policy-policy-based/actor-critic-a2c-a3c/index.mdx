@@ -220,6 +220,11 @@ Modern implementations often prefer A2C-style synchronization. A2C collects roll
 The complete runnable example, including CartPole rollouts, bootstrapped n-step advantages, and the A2C loss:
 [`actor-critic-a2c-a3c.py`](https://github.com/lubludrova/rl-handbook/blob/main/content/docs/02-on-policy-policy-based/actor-critic-a2c-a3c/actor-critic-a2c-a3c.py)
 
+You may also find these implementations useful:
+- [Yandex Practical RL: A2C](https://github.com/yandexdataschool/Practical_RL/blob/master/week06_policy_based/a2c-optional.ipynb)
+- [VachanVY: Actor-Critic CartPole](https://github.com/VachanVY/Reinforcement-Learning/blob/main/actor_critic_cartpole.py)
+- [Boyu AI: Actor-Critic](https://github.com/boyu-ai/Hands-on-RL/blob/main/第10章-Actor-Critic算法.ipynb)
+
 ## What Comes Next
 
 Actor-critic fixes one weakness of REINFORCE: the learning signal no longer has to be a full Monte Carlo return. The critic gives a lower-variance advantage estimate, and $n$-step targets choose how many real rewards to use before bootstrapping. What A2C and A3C do not control is the size of the policy change. In on-policy learning, one bad update can poison the next batch because that batch is collected by the updated policy. The next chapter studies this step-size problem: TRPO keeps the actor-critic ingredients, but constrains the new policy to stay near the old one.

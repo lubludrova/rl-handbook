@@ -202,6 +202,11 @@ Full uniform sweeps are not the only possible DP schedule. An asynchronous versi
 The complete runnable example, including the Cliff Walking model, policy evaluation, policy improvement, policy iteration, value iteration, and policy printing:
 [`dynamic-programming.py`](https://github.com/lubludrova/rl-handbook/blob/main/content/docs/01-value-based/dynamic-programming/dynamic-programming.py)
 
+You may also find these implementations useful:
+- [VachanVY: Policy Iteration on FrozenLake](https://github.com/VachanVY/Reinforcement-Learning/blob/main/dynamic_programming_policy_iteration_frozen_lake.py)
+- [VachanVY: Value Iteration on Taxi-v3](https://github.com/VachanVY/Reinforcement-Learning/blob/main/dynamic_programming_value_iteration_taxi_v3_.py)
+- [Yandex Practical RL: Value Iteration Seminar](https://github.com/yandexdataschool/Practical_RL/blob/master/week02_value_based/seminar_vi.ipynb)
+
 ## What Comes Next
 
 Dynamic programming assumes the transition and reward model is known. The next chapter removes that assumption. When $p$ and $r$ are unknown, value functions must be estimated from sampled episodes and transitions: Monte Carlo prediction waits for returns; temporal-difference prediction bootstraps one step at a time.

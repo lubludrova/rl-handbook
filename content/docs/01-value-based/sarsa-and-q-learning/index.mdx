@@ -235,6 +235,11 @@ The learning curve shows the same distinction from another angle. Sarsa's return
 The complete runnable example, including Cliff Walking, Sarsa, Q-learning, and learning-curve plotting:
 [`sarsa-and-q-learning.py`](https://github.com/lubludrova/rl-handbook/blob/main/content/docs/01-value-based/sarsa-and-q-learning/sarsa-and-q-learning.py)
 
+You may also find these implementations useful:
+- [VachanVY: SARSA, Q-learning, Expected SARSA](https://github.com/VachanVY/Reinforcement-Learning/blob/main/qlearning_sarsa_expectedsarsa_on_cliff_walking.py)
+- [Boyu AI: Temporal Difference Algorithms](https://github.com/boyu-ai/Hands-on-RL/blob/main/第5章-时序差分算法.ipynb)
+- [Gibberblot: Temporal Difference Learning](https://gibberblot.github.io/rl-notes/single-agent/temporal-difference-learning.html)
+
 ## What Comes Next
 
 Tabular Sarsa and Q-learning assume that a separate entry can be stored for every state-action pair. That works for small grids, but not for large observation spaces. The next chapter replaces the table with a parametric action-value function $Q_\theta(s,a)$. That change leads to DQN: Q-learning with a neural network, plus the stability tricks needed when off-policy bootstrapping is combined with function approximation.

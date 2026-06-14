@@ -320,6 +320,11 @@ The complete runnable example uses **REINFORCE with advantage**: a learned value
 
 [`policy-gradient-and-reinforce.py`](https://github.com/lubludrova/rl-handbook/blob/main/content/docs/02-on-policy-policy-based/policy-gradient-and-reinforce/policy-gradient-and-reinforce.py)
 
+You may also find these implementations useful:
+- [Yandex Practical RL: REINFORCE](https://github.com/yandexdataschool/Practical_RL/blob/master/week06_policy_based/reinforce_pytorch.ipynb)
+- [OpenAI Spinning Up: PyTorch VPG](https://github.com/openai/spinningup/tree/master/spinup/algos/pytorch/vpg)
+- [Gibberblot: Policy Gradients](https://gibberblot.github.io/rl-notes/single-agent/policy-gradients.html)
+
 ## What Comes Next
 
 REINFORCE is the cleanest policy-gradient algorithm, but not the most sample-efficient one. It waits until returns are observed, uses on-policy data, and can have high variance when episodes are long or rewards are delayed. A learned baseline reduces variance, but it still only subtracts from the Monte Carlo return after that return is known. The next step is actor-critic: A2C uses the value function as a critic, replacing the full return with a bootstrapped target, so the policy can learn from shorter TD-style signals.
