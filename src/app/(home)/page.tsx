@@ -169,6 +169,20 @@ export default function HomePage() {
               Lock in
             </Link>
           </div>
+
+          <div className="mt-5">
+            <Link
+              href="/map"
+              prefetch={false}
+              className="icon-link font-heading text-xs uppercase underline underline-offset-4"
+              style={{
+                letterSpacing: '0.1em',
+                color: 'var(--color-fd-muted-foreground)',
+              }}
+            >
+              or explore the Map of RL →
+            </Link>
+          </div>
         </div>
       </section>
 

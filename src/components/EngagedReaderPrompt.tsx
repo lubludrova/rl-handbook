@@ -58,9 +58,7 @@ export function EngagedReaderPrompt({ url, title }: { url: string; title: string
   const [isVisible, setIsVisible] = useState(false);
   const activeVisibleMsRef = useRef(0);
   const hasShownRef = useRef(false);
-  const requiredDelayMsRef = useRef(
-    MIN_VISIBLE_MS + Math.floor(Math.random() * MAX_EXTRA_DELAY_MS),
-  );
+  const requiredDelayMsRef = useRef(MIN_VISIBLE_MS);
 
   const issueUrl = useMemo(() => getArticleFeedbackIssueUrl({ url, title }), [title, url]);
 
@@ -86,6 +84,8 @@ export function EngagedReaderPrompt({ url, title }: { url: string; title: string
 
   useEffect(() => {
     if (isInCooldown(Date.now())) return;
+
+    requiredDelayMsRef.current = MIN_VISIBLE_MS + Math.floor(Math.random() * MAX_EXTRA_DELAY_MS);
 
     let animationFrameId: number | null = null;
     const intervalId = window.setInterval(() => {

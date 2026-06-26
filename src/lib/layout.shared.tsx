@@ -11,6 +11,12 @@ export function baseOptions(): BaseLayoutProps {
     nav: {
       title: 'RL Handbook',
     },
+    links: [
+      {
+        text: 'Map',
+        url: '/map',
+      },
+    ],
     githubUrl: `https://github.com/${gitConfig.user}/${gitConfig.repo}`,
   };
 }

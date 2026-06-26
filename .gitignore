@@ -32,10 +32,14 @@ next-env.d.ts
 
 # project internals
 .opencode/
+/.claude/
 
 # local editor state
 content/docs/.obsidian/
 /.vscode/
+
+# local/generated media drafts
+/public/social/rl-handbook-hero-hq.*
 
 # third-party PDFs (cite, don't redistribute)
 /downloads/

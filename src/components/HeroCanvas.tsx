@@ -240,6 +240,7 @@ function MobileNodePattern() {
 export function HeroCanvas() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const frameRef = useRef<number | null>(null);
+  const drawFrameRef = useRef<() => void>(() => {});
   const modeResizeTimeoutRef = useRef<number | null>(null);
   const canvasResizeTimeoutRef = useRef<number | null>(null);
   const dimensionsRef = useRef({ w: 0, h: 0 });
@@ -352,7 +353,7 @@ export function HeroCanvas() {
     }
 
     const { w, h } = dimensionsRef.current;
-    const nodes = nodesRef.current;
+    const nodes = nodesRef.current.map((node) => ({ ...node }));
     const pointer = pointerRef.current;
     const isMobile = w < MOBILE_BREAKPOINT;
     const config = getAnimationConfig(w);
@@ -360,7 +361,7 @@ export function HeroCanvas() {
     const minFrameMs = 1000 / config.fps;
 
     if (lastFrameTimeRef.current > 0 && now - lastFrameTimeRef.current < minFrameMs) {
-      frameRef.current = requestAnimationFrame(drawFrame);
+      frameRef.current = requestAnimationFrame(() => drawFrameRef.current());
       return;
     }
 
@@ -481,8 +482,13 @@ export function HeroCanvas() {
       ctx.fill();
     }
 
-    frameRef.current = requestAnimationFrame(drawFrame);
+    nodesRef.current = nodes;
+    frameRef.current = requestAnimationFrame(() => drawFrameRef.current());
   }, [getAnimationConfig, pad]);
+
+  useEffect(() => {
+    drawFrameRef.current = drawFrame;
+  }, [drawFrame]);
 
   const updateRenderMode = useCallback(() => {
     const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -497,7 +503,7 @@ export function HeroCanvas() {
   }, []);
 
   useEffect(() => {
-    updateRenderMode();
+    const initialFrame = window.requestAnimationFrame(updateRenderMode);
 
     const mediaQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
     const handleViewportChange = () => {
@@ -519,6 +525,7 @@ export function HeroCanvas() {
     mediaQuery.addEventListener('change', handleMotionChange);
 
     return () => {
+      window.cancelAnimationFrame(initialFrame);
       window.removeEventListener('resize', handleViewportChange);
       mediaQuery.removeEventListener('change', handleMotionChange);
 
