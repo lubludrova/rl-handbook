@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 
 const BYPASS_COOKIE = 'rlh_preview';
 
-export function middleware(req: NextRequest) {
+export function proxy(req: NextRequest) {
   if (process.env.MAINTENANCE_MODE !== 'true') {
     return NextResponse.next();
   }

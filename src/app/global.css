@@ -179,6 +179,46 @@ html {
   box-shadow: 0 0 0 3px var(--color-fd-border);
 }
 
+/* ===== Map entry transition (shared-element morph) ===== */
+
+/* Portaled to <body> so it sits above the navbar and covers the whole screen
+   with the page color — during the morph only the assembling dots are visible. */
+.map-morph-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  overflow: hidden;
+  background: var(--color-fd-background);
+  animation: map-morph-in 140ms ease both;
+}
+
+/* The dot stage matches the map's content box (below the 3.5rem navbar) so the
+   layout it settles into lines up exactly with the real map after the swap. */
+.map-morph-stage {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 3.5rem;
+  height: calc(100dvh - 3.5rem);
+}
+
+/* Navbar sits in a stacking context above the overlay; hide it during the morph. */
+.map-morphing #nd-nav {
+  opacity: 0;
+  pointer-events: none;
+}
+
+@keyframes map-morph-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .map-morph-overlay {
+    animation: none;
+  }
+}
+
 /* ===== Map of RL page ===== */
 
 .map-fade {

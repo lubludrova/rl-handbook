@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   VIEW_H,
   VIEW_W,
@@ -24,6 +24,9 @@ interface ViewState {
 
 const MIN_ZOOM = 0.45;
 const MAX_ZOOM = 5;
+
+/** Run the warp-arrival framing before paint on the client, plain effect on the server. */
+const useIsomorphicLayoutEffect = typeof window !== 'undefined' ? useLayoutEffect : useEffect;
 
 const nodeById = new Map(nodes.map((n) => [n.id, n]));
 
@@ -232,7 +235,6 @@ function activateWithKeyboard(e: React.KeyboardEvent, action: () => void) {
 
 export function AlgorithmMap() {
   const svgRef = useRef<SVGSVGElement>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
   const pointersRef = useRef(new Map<number, { x: number; y: number }>());
   const dragDistRef = useRef(0);
 
@@ -243,6 +245,12 @@ export function AlgorithmMap() {
   const [finderOpen, setFinderOpen] = useState(false);
   const [selectedFacets, setSelectedFacets] = useState<SelectedFacets>(initialFacetsFromUrl);
   const [urlSyncReady, setUrlSyncReady] = useState(false);
+  // Captured once at first render, before any effect strips the flag from the
+  // URL, so the deep-link and arrival effects agree on whether we warped in.
+  const warpArrivalRef = useRef(
+    typeof window !== 'undefined' &&
+      new URLSearchParams(window.location.search).get('warp') === '1',
+  );
 
   const focusId = hovered ?? selected;
   const lineage = useMemo(() => (focusId ? collectLineage(focusId) : null), [focusId]);
@@ -329,12 +337,14 @@ export function AlgorithmMap() {
 
   // Deep link: /map?focus=ppo
   useEffect(() => {
-    const id = new URLSearchParams(window.location.search).get('focus');
+    const params = new URLSearchParams(window.location.search);
+    const id = params.get('focus');
+    const warp = warpArrivalRef.current;
     const frame = window.requestAnimationFrame(() => {
       if (id && nodeById.has(id)) {
         setSelected(id);
         centerOn(nodeById.get(id)!);
-      } else if (window.innerWidth < 768) {
+      } else if (!warp && window.innerWidth < 768) {
         // Portrait screens: start zoomed into the center of the map.
         const k = 1.9;
         setView({ x: VIEW_W / 2 - 800 * k, y: VIEW_H / 2 - 480 * k, k });
@@ -345,6 +355,26 @@ export function AlgorithmMap() {
 
     return () => window.cancelAnimationFrame(frame);
   }, [centerOn]);
+
+  // Warp arrival: we landed from the homepage morph, which already settled the
+  // dots onto this exact layout. Mount at the matching resting framing (before
+  // paint) so the hand-off from the overlay is seamless.
+  useIsomorphicLayoutEffect(() => {
+    if (!warpArrivalRef.current) return;
+    // A deep-linked node owns the framing; let it win.
+    if (new URLSearchParams(window.location.search).get('focus')) return;
+
+    const cleanUrl = new URL(window.location.href);
+    cleanUrl.searchParams.delete('warp');
+    window.history.replaceState(null, '', cleanUrl);
+
+    const isMobile = window.innerWidth < 768;
+    setView(
+      isMobile
+        ? { x: VIEW_W / 2 - 800 * 1.9, y: VIEW_H / 2 - 480 * 1.9, k: 1.9 }
+        : { x: 0, y: 0, k: 1 },
+    );
+  }, []);
 
   // Keep ?focus= and finder facets in the URL shareable.
   useEffect(() => {
@@ -483,7 +513,6 @@ export function AlgorithmMap() {
 
   return (
     <div
-      ref={containerRef}
       className="relative h-full w-full overflow-hidden grain-overlay"
       style={{ background: 'var(--color-fd-background)', color: 'var(--color-fd-foreground)' }}
     >

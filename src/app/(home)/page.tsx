@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { memo, useState } from 'react';
 import { HeroCanvas } from '@/components/HeroCanvas';
+import { MapTransitionLink } from '@/components/MapTransitionLink';
 
 const SectionTitle = memo(function SectionTitle({ children }: { children: React.ReactNode }) {
   return (
@@ -171,17 +172,7 @@ export default function HomePage() {
           </div>
 
           <div className="mt-5">
-            <Link
-              href="/map"
-              prefetch={false}
-              className="icon-link font-heading text-xs uppercase underline underline-offset-4"
-              style={{
-                letterSpacing: '0.1em',
-                color: 'var(--color-fd-muted-foreground)',
-              }}
-            >
-              or explore the Map of RL →
-            </Link>
+            <MapTransitionLink />
           </div>
         </div>
       </section>
