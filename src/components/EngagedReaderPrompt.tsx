@@ -5,13 +5,11 @@ import { Star, X } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 const STORAGE_KEY = 'rl-handbook:engaged-reader-prompt:v1';
-const MIN_VISIBLE_MS = 5 * 60 * 1000;
-const MAX_EXTRA_DELAY_MS = 2 * 60 * 1000;
+const MIN_VISIBLE_MS = 2 * 60 * 1000;
 const CHECK_INTERVAL_MS = 1000;
 const MIN_SCROLL_PROGRESS = 0.2;
 const SHOW_COOLDOWN_MS = 2 * 24 * 60 * 60 * 1000;
 const ACTION_COOLDOWN_MS = 120 * 24 * 60 * 60 * 1000;
-const AUTO_DISMISS_MS = 2 * 60 * 1000;
 
 interface PromptState {
   lastShownAt?: number;
@@ -58,7 +56,6 @@ export function EngagedReaderPrompt({ url, title }: { url: string; title: string
   const [isVisible, setIsVisible] = useState(false);
   const activeVisibleMsRef = useRef(0);
   const hasShownRef = useRef(false);
-  const requiredDelayMsRef = useRef(MIN_VISIBLE_MS);
 
   const issueUrl = useMemo(() => getArticleFeedbackIssueUrl({ url, title }), [title, url]);
 
@@ -74,7 +71,7 @@ export function EngagedReaderPrompt({ url, title }: { url: string; title: string
 
   const maybeShowPrompt = useCallback(() => {
     if (hasShownRef.current || document.visibilityState !== 'visible') return;
-    if (activeVisibleMsRef.current < requiredDelayMsRef.current) return;
+    if (activeVisibleMsRef.current < MIN_VISIBLE_MS) return;
     if (getScrollProgress() < MIN_SCROLL_PROGRESS) return;
 
     hasShownRef.current = true;
@@ -84,8 +81,6 @@ export function EngagedReaderPrompt({ url, title }: { url: string; title: string
 
   useEffect(() => {
     if (isInCooldown(Date.now())) return;
-
-    requiredDelayMsRef.current = MIN_VISIBLE_MS + Math.floor(Math.random() * MAX_EXTRA_DELAY_MS);
 
     let animationFrameId: number | null = null;
     const intervalId = window.setInterval(() => {
@@ -114,19 +109,6 @@ export function EngagedReaderPrompt({ url, title }: { url: string; title: string
       }
     };
   }, [maybeShowPrompt]);
-
-  useEffect(() => {
-    if (!isVisible) return;
-
-    const timeoutId = window.setTimeout(() => {
-      writePromptState({ lastDismissedAt: Date.now() });
-      setIsVisible(false);
-    }, AUTO_DISMISS_MS);
-
-    return () => {
-      window.clearTimeout(timeoutId);
-    };
-  }, [isVisible]);
 
   if (!isVisible) return null;
 
