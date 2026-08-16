@@ -1,0 +1,334 @@
+---
+title: 策略梯度与 REINFORCE 算法
+description: "直接参数化策略、策略梯度定理、REINFORCE、基线减除与优势形式。"
+---
+
+> **摘要.** 策略梯度方法学习策略本身 $\pi_\theta(a \mid s)$，而不是学习一个价值表再取 $\arg\max$。关键问题是：当唯一的反馈是一段采样的轨迹及其延迟奖励时，如何改变策略参数。策略梯度定理给出了答案：提高导致高回报的动作的概率，降低没有导致高回报的动作的概率。REINFORCE 是这个思想最简单的版本，用同一片段的蒙特卡洛回报 $G_t$ 作为学习信号。
+
+基于值的控制学习了 $Q(s,a)$，并通过选择价值最大的动作来推导策略。这对小的离散动作空间天然有效，而 DQN 通过为每个动作产生一个 $Q$ 值保持了同样的形态。局限就藏在"每个"这个词里。对于小的离散动作空间，取 $\arg\max_a Q(s,a)$ 意味着给几个选项打分并选最好的。对于连续动作（如力矩或转向指令），或结构化动作（如生成的 token），选择的集合不再是我们能简单列出并比较的东西。
+
+问题不在于价值不再有意义。问题是，从一个价值函数行动现在需要在每个环境步内部求解一个优化问题。一个面向连续动作的神经 $Q_\theta(s,a)$ 可以给任何提议的动作打分，但它不会自动告诉我们哪个实值动作最大化分数。现在策略类方法的想法很简单：我们就直接尝试优化策略本身，因为这最终正是我们需要的东西。
+
+策略梯度方法从直接参数化策略开始：
+
+$$
+\pi_\theta(a \mid s).
+$$
+
+这被称为随机策略（stochastic policy）：它输出一个动作上的概率分布，智能体通过从中采样来行动。另一种选择是确定性策略 $a = \pi_\theta(s)$，它把每个状态映射到一个无随机性的单一动作。直观上，区别在于同一个状态在不同访问时能否产生不同动作。学习随机策略通常更方便，因为采样步骤免费提供了探索，且梯度能干净地穿过分布，所以我们将主要聚焦随机策略。
+
+参数 $\theta$ 可以是一张小表、一个线性模型或一个神经网络。输出是动作上的概率分布。在离散环境中，这通常是对动作偏好（preference）的 softmax，产生一个类别分布。在连续控制中，这通常是一个高斯分布，其参数来自策略网络。智能体通过从分布中采样来行动，然后调整 $\theta$，使得跟随高回报的动作变得更可能。
+
+## 目标函数
+
+对于一个片段式任务，把一条轨迹写作
+
+$$
+\tau = (S_0, A_0, R_1, S_1, A_1, R_2, \ldots, S_T).
+$$
+
+一个策略 $\pi_\theta$ 定义了轨迹上的分布：策略采样动作，环境以下一状态和奖励回应。性能目标是一条轨迹的期望折扣回报：
+
+$$
+J(\theta) = \mathbb{E}_{\tau \sim \pi_\theta}\bigl[G(\tau)\bigr],
+\qquad
+G(\tau) = \sum_{t=0}^{T-1} \gamma^t R_{t+1}.
+$$
+
+等价地，同一目标也可以写成对所有可能轨迹的求和：
+
+$$
+J(\theta) = \sum_\tau P_\theta(\tau) G(\tau).
+$$
+
+当状态或动作空间连续时，这个求和其实是轨迹空间上的积分，下面的推导完全相同。积分形式是同一个恒等式：
+
+$$
+J(\theta) = \int P_\theta(\tau)\, G(\tau)\, d\tau.
+$$
+
+在本章余下部分我们保留 $\sum_\tau$ 记法，但理解为在连续情形中它代表一个积分。这个形式显示了困难所在。回报 $G(\tau)$ 是一条轨迹发生之后观测到的数。参数 $\theta$ 通过改变不同轨迹的可能性来改变目标。
+
+对于一个片段式 MDP，一条轨迹的概率是因式化的：
+
+$$
+P_\theta(\tau)
+:= p(S_0)
+\prod_{t=0}^{T-1}
+\pi_\theta(A_t \mid S_t)
+p(S_{t+1}, R_{t+1} \mid S_t, A_t).
+$$
+
+把它读作从 $S_0$ 开始的概率，然后反复在策略下选择被记录的动作，并让环境产生被记录的下一状态和奖励。只有策略项包含 $\theta$。初始状态分布和环境动态不受策略参数控制。在无模型 RL 中，我们也不知道那些转移概率，也不应该需要对它们求导。
+
+现在对目标求导：
+
+$$
+\nabla_\theta J(\theta)
+:= \sum_\tau \nabla_\theta P_\theta(\tau)\, G(\tau).
+$$
+
+在应用导数之前，把轨迹概率拆成含 $\theta$ 的部分和不含 $\theta$ 的部分：
+
+$$
+P_\theta(\tau)
+:= \underbrace{\prod_{t=0}^{T-1} \pi_\theta(A_t \mid S_t)}_{\text{策略}}
+\;
+\underbrace{p(S_0)
+\prod_{t=0}^{T-1}
+p(S_{t+1}, R_{t+1} \mid S_t, A_t)}_{\text{环境}}.
+$$
+
+只有策略乘积依赖于 $\theta$。因此求导只击中那一组。把环境因子放在对状态的求和旁边、策略因子放在对动作的求和旁边，结构就清晰了：
+
+$$
+\nabla_\theta J(\theta)
+:= \sum_{S}
+p(S_0)
+\prod_{t=0}^{T-1}
+p(S_{t+1}, R_{t+1} \mid S_t, A_t)
+\sum_{A}
+\nabla_\theta \prod_{t=0}^{T-1} \pi_\theta(A_t \mid S_t)
+\, G(\tau).
+$$
+
+困难在于 $\nabla_\theta P_\theta(\tau)$ 是一个概率的梯度，而不是概率本身。因此加权和 $\sum_\tau \nabla_\theta P_\theta(\tau)\, G(\tau)$ 不是一个期望，因为权重不构成分布：概率的梯度可以是负的，并且总和为零。你不能采样一条轨迹并用它来估计这个和，因为现在我们有的是轨迹概率的梯度。
+
+这正是对数导数技巧（log-derivative trick）所提供的。
+
+## 对数导数技巧
+
+关键的代数动作是对数导数技巧（并不难的数学）：
+
+$$
+\nabla_\theta \pi_\theta(a \mid s)
+:= \pi_\theta(a \mid s) \nabla_\theta \log \pi_\theta(a \mid s).
+$$
+
+这个恒等式只是链式法则应用到 $\log \pi_\theta(a \mid s)$。它之所以重要，是因为它把一个概率的导数重写为一个概率乘以一个对数概率的导数。同样的动作适用于整个轨迹概率：
+
+$$
+\nabla_\theta P_\theta(\tau)
+:= P_\theta(\tau) \nabla_\theta \log P_\theta(\tau).
+$$
+
+因为 $P_\theta(\tau)$ 中的环境因子不含 $\theta$，轨迹概率的对数在求导时只保留策略项：
+
+$$
+\nabla_\theta \log P_\theta(\tau)
+:= \sum_{t=0}^{T-1}
+\nabla_\theta \log \pi_\theta(A_t \mid S_t).
+$$
+
+## 从技巧到更新
+
+把对数导数恒等式应用到目标：
+
+$$
+\nabla_\theta J(\theta)
+:= \sum_\tau P_\theta(\tau)\, \nabla_\theta \log P_\theta(\tau)\, G(\tau)
+:= \mathbb{E}_\tau\!\left[\nabla_\theta \log P_\theta(\tau)\, G(\tau)\right].
+$$
+
+或完整写出：
+$$
+\nabla_\theta J(\theta)
+:= \sum_{S}
+p(S_0)
+\prod_{t=0}^{T-1}
+p(S_{t+1}, R_{t+1} \mid S_t, A_t)
+\sum_{A}
+\prod_{t=0}^{T-1} \pi_\theta(A_t \mid S_t)\
+\sum_{t=0}^{T-1} \nabla_\theta \log\pi_\theta(A_t \mid S_t)
+\, G(\tau).
+$$
+
+期望展开成时间步上的求和：
+
+$$
+\nabla_\theta J(\theta)
+:= \mathbb{E}_\tau\!\left[
+\sum_{t=0}^{T-1} \nabla_\theta \log \pi_\theta(A_t \mid S_t)\, G(\tau)
+\right].
+$$
+
+这三个公式本质上是同一个东西，只是写法不同。如果你感到困惑，可以让任意 LLM 来推导它们之间的转换，这会很有帮助，因为我不知道还能用什么更好的方式组织这个想法。
+
+对于一个采样的动作，score 项 $\nabla_\theta \log \pi_\theta(A_t \mid S_t)$ 说明了如何改变 $\theta$ 使该采样动作在该状态更可能，而回报 $G(\tau)$ 提供标量权重，说明该动作是好是坏。如果动作导致了高回报，梯度把策略推向使其更可能的方向；如果回报低，则推向相反方向。
+
+对于一条单次采样的轨迹，蒙特卡洛估计器用一次样本替换期望：
+
+$$
+\nabla_\theta J(\theta)
+\approx
+\sum_{t=0}^{T-1} \nabla_\theta \log \pi_\theta(A_t \mid S_t)\, G(\tau).
+$$
+
+这几乎是一个算法，但有一个微妙之处。回报 $G(\tau)$ 是 *整个* 轨迹的折扣奖励之和。在时间 $t$ 之前收集的奖励不依赖于动作 $A_t$，它们已由更早的状态和动作确定。只有从时间 $t$ 起的奖励受 $A_t$ 选择的影响。用从时间 $t$ 起的回报替换整个回报，
+
+$$
+G_t = R_{t+1} + \gamma R_{t+2} + \gamma^2 R_{t+3} + \cdots,
+$$
+
+在保持估计无偏的同时，给每个动作一个更有针对性的权重。事实上 $\mathbb{E}_{\pi_\theta}[G_t \mid S_t, A_t] = Q^{\pi_\theta}(S_t, A_t)$，所以从时间 $t$ 起的回报是动作价值的一个无偏样本。结果就是 REINFORCE 更新：
+
+$$
+\nabla_\theta J(\theta)
+\approx
+\sum_{t=0}^{T-1} \nabla_\theta \log \pi_\theta(A_t \mid S_t)\, G_t.
+$$
+
+## 策略梯度定理
+
+上面的推导从轨迹概率出发构建估计器，到达
+
+$$
+\nabla_\theta J(\theta)
+:= \mathbb{E}_{s,a \sim \pi_\theta}\left[
+\nabla_\theta \log \pi_\theta(a \mid s)\, G_t
+\right],
+$$
+
+其中 $G_t$ 是从时间 $t$ 起的采样未来回报。策略梯度定理以更一般的形式陈述了同样的结果：采样回报 $G_t$ 可以被 $(S_t, A_t)$ 未来回报的 *任何* 无偏估计量 $\hat{Q}_t$ 替换，公式仍然成立：
+
+$$
+\nabla_\theta J(\theta)
+:= \mathbb{E}_{s,a \sim \pi_\theta}\left[
+\nabla_\theta \log \pi_\theta(a \mid s)\, \hat{Q}_t
+\right].
+$$
+
+这个公式就是直接策略优化之所以可能的原因。它说我们不需要对环境转移概率求导。我们只需要采样的状态和动作、它们的策略对数概率，以及每个动作之后跟随了多少回报的估计。
+
+该定理解释了本部分每个策略梯度算法的形态：
+
+$$
+\text{策略更新} \propto
+\text{采样动作的 score} \times \text{回报或优势估计}.
+$$
+
+算法的区别主要在于第二个因子如何估计，以及参数移动得多谨慎。第一个答案是根本不使用学到的价值函数：等待片段回报并直接使用它——这就是 REINFORCE（情形 $\hat{Q}_t = G_t$）。下一节把这点具体化；后面的小节当我们看方差缩减时，会引入更好的估计器（带学到的价值函数 $V^\pi$ 和 $Q^\pi$，以及优势 $A^\pi = Q^\pi - V^\pi$）。
+
+## REINFORCE
+
+Williams（1992）命名了该算法 REINFORCE，并证明了蒙特卡洛估计器是真实策略梯度的无偏估计。大的正权重增加采样动作的对数概率；负权重减小它。在原始 CartPole 奖励下，回报通常为正，所以普通 REINFORCE 强化所有采样动作，但对来自更长片段的动作强化得更强。在减去基线之后，表现比基线更差的动作为负权重。
+
+REINFORCE 是蒙特卡洛的，因为它等待采样的奖励，而不是从学到的价值估计自举。好处是概念上的干净：$G_t$ 是在状态 $S_t$ 采取动作 $A_t$ 之后期望未来回报的无偏样本。缺点是方差。两条片段可以采取相同的早期动作，后来因为环境随机性或后面的探索而分道扬镳，因此同一个 score 项可能被非常不同的回报相乘。
+
+单次采样轨迹给出有噪声的估计，所以在实践中每次更新在当前策略下对 $N$ 条轨迹取平均。之前的单轨迹估计器变成蒙特卡洛策略梯度：
+
+$$
+\nabla_\theta J(\theta)
+\approx
+\frac{1}{N} \sum_{i=1}^{N} \sum_{t=0}^{T_i - 1}
+\nabla_\theta \log \pi_\theta(A_t^{(i)} \mid S_t^{(i)})\, G_t^{(i)}).
+$$
+
+训练循环伪代码：
+
+```
+随机初始化策略参数 theta
+
+重复：
+    在当前策略 pi_theta 下采样 N 条轨迹 tau_1, ..., tau_N
+    估计梯度：
+        grad_J = (上面的公式)
+    上升：
+        theta <- theta + alpha * grad_J
+```
+
+REINFORCE 是同策略还是异策略？看循环：每一步我们都丢弃旧数据，并在 *当前* 策略 $\pi_\theta$ 下收集一批新鲜的 $N$ 条轨迹，且只有那些轨迹进入梯度估计。推导从一开始就做了这个假设——估计器所近似的期望 $\mathbb{E}_{\tau \sim \pi_\theta}$ 是在我们正在优化的策略下的期望。来自旧版本策略的轨迹会是从不同分布的样本，代入它们会使梯度有偏。因此 REINFORCE 是 **同策略**（on-policy）的：每次参数更新都使产生它的数据失效，而下一次更新需要新样本。
+
+## 基线降低方差
+
+原始回报 $G_t$ 包含了不特定于所选动作的信息。有些状态无论采样到哪个动作都好；另一些无论智能体做什么都差。用整个回报乘以 score 项，迫使梯度估计携带这种状态级别的噪声。
+
+一个简单的双动作示例让这变得具体。在某个状态，智能体可以向左（回报 $+1$）或向右（回报 $0$）。当我们采样到"左"时，梯度推高它的对数概率；采样到"右"时权重为零，什么都不动。策略很快学会偏好"左"。现在想象每个奖励都平移了 $+100$。任务不变，但回报变成 $+101$ 和 $+100$。两个样本现在都产生大的正向推动，所以每次更新都会颠它采样到的任何动作，而"左"只以百分之一微弱优势胜出。学习仍会收敛，但大部分梯度量级都花在了统一的"一切都好"的推动上，那对 *哪个* 动作更好毫无说明。有用的信号是回报之间的 *差异*，而非它们的绝对水平，我们可以相应地通过加一个基线来修改 $Q$。
+
+让我们加入基线 $b(s)$，它在改变期望梯度的前提下减去一个与状态相关的量：
+
+$$
+\nabla_\theta J(\theta)
+:= \mathbb{E}\left[
+\nabla_\theta \log \pi_\theta(a \mid s)\,\left(Q^{\pi_\theta}(s,a) - b(s)\right)
+\right].
+$$
+
+基线 $b(s)$ 可以依赖于状态，但不能依赖于采样动作。要看出原因，把带基线的梯度拆成两个期望：
+
+$$
+\nabla_\theta J(\theta)
+:= \mathbb{E}\left[\nabla_\theta \log \pi_\theta(a \mid s)\, Q^{\pi_\theta}(s,a)\right]
+- \mathbb{E}\left[\nabla_\theta \log \pi_\theta(a \mid s)\, b(s)\right].
+$$
+
+第一项是原始策略梯度。为了让公式保持无偏，第二项必须等于零。一句话的论证是：
+
+$$
+\mathbb{E}_{a \sim \pi_\theta(\cdot \mid s)}\left[
+\nabla_\theta \log \pi_\theta(a \mid s)b(s)
+\right]
+:= b(s)\nabla_\theta \sum_a \pi_\theta(a \mid s)
+:= b(s)\nabla_\theta 1
+:= 0.
+$$
+
+关键的一步把 $b(s)$ 提到对动作的内层求和之外，这只在 $b$ 不依赖于 $a$ 时有效。形如 $b(s,a)$ 的基线会留在求和中，抵消失败，使梯度有偏。
+
+从每个动作中减去同一个与状态相关的数，不能系统性地把概率质量推向某个动作。它改变了采样的权重，有时甚至改变其符号，但不改变期望策略梯度。对于 $b(s)$ 我们可以选择 $s$ 的任何函数，但什么才是好的做法呢？
+
+## 优势形式
+
+自然的基线是状态价值 $V^{\pi}(s)$，即策略下从该状态出发的平均回报。减去它，留下 $Q$ 中说明采样动作比该状态下策略通常行为更好或更差的那部分。
+
+优势函数定义为
+
+$$
+A^\pi(s,a) = Q^\pi(s,a) - V^\pi(s).
+$$
+
+它是一个相对量。正优势意味着该动作比策略在该状态的平均动作更好。负优势意味着更差。对所采动作取平均，优势为零：
+
+$$
+\mathbb{E}_{a \sim \pi(\cdot \mid s)}[A^\pi(s,a)] = 0.
+$$
+
+使用 $b(s)=V^\pi(s)$ 得到策略梯度的优势形式：
+
+$$
+\nabla_\theta J(\theta)
+:= \mathbb{E}\left[
+A^{\pi_\theta}(s,a)\,\nabla_\theta \log \pi_\theta(a \mid s)
+\right].
+$$
+
+这是大多数现代策略梯度方法使用的形式。策略不会因为访问一个总体好的状态而受奖赏；它受奖赏是因为选择了比策略在该状态自身平均行为更好的动作。
+
+在实践中我们不知道真实的 $V^{\pi}(s)$，所以我们训练一个与策略并行的第二个网络 $V_\phi(s)$，通常通过对观测到的回报 $G_t$ 用均方误差来拟合它。即使多了这个网络，该方法仍是 REINFORCE，而非 actor-critic：$V_\phi$ 进入策略更新只是作为从蒙特卡洛回报 $G_t$ 中减去的基线。Actor-critic 方法更进一步，用价值网络来 *自举*：用 $R_{t+1} + \gamma V_\phi(S_{t+1})$ 替换 $G_t$ 本身，于是策略更新不再等待完整的片段回报。
+
+## 连续策略
+
+当动作连续时，直接参数化策略尤其自然。一个常见选择是高斯策略：
+
+$$
+\pi_\theta(a \mid s) = \mathcal{N}(\mu_\theta(s), \sigma^2).
+$$
+
+策略网络输出均值动作 $\mu_\theta(s)$，而方差可以是固定的或学到的。行动意味着从这个分布采样一个实值动作。学习仍使用相同的 score 项 $\nabla_\theta \log \pi_\theta(a \mid s)$；区别在于对数概率来自连续密度而非类别概率。
+
+这避免了在全部可能连续动作上搜索的基于值的问题。策略已经知道如何产生一个动作。梯度只需要根据回报让采样动作或多或少地更可能。
+
+## 完整代码
+
+完整可运行示例使用 **带优势（advantage）的 REINFORCE**：一个学到的价值函数 $V_\phi(s)$ 充当基线。两个网络同时被训练——策略网络 $\pi_\theta$ 和价值网络 $V_\phi$（后者仅用作基线，不用于自举）：
+
+[`policy-gradient-and-reinforce.py`](https://github.com/lubludrova/rl-handbook/blob/main/content/docs/02-on-policy-policy-based/policy-gradient-and-reinforce/policy-gradient-and-reinforce.py)
+
+你可能还会发现以下实现很有用：
+- [Yandex Practical RL：REINFORCE](https://github.com/yandexdataschool/Practical_RL/blob/master/week06_policy_based/reinforce_pytorch.ipynb)
+- [OpenAI Spinning Up：PyTorch VPG](https://github.com/openai/spinningup/tree/master/spinup/algos/pytorch/vpg)
+- [Gibberblot：Policy Gradients](https://gibberblot.github.io/rl-notes/single-agent/policy-gradients.html)
+
+## 接下来是什么
+
+REINFORCE 是最干净的策略梯度算法，但不是最样本高效的。它等待回报被观测到，使用同策略数据，并且在片段长或奖励延迟时可能有高方差。一个学到的基线降低方差，但它仍然只在回报已知之后从蒙特卡洛回报中减去。下一步是 actor-critic：A2C 把价值函数用作评论家，用自举目标替换完整回报，于是策略可以从更短的 TD 式信号中学习。

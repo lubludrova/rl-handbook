@@ -7,7 +7,10 @@ export const revalidate = false;
 
 export async function GET(_req: Request, { params }: RouteContext<'/og/docs/[...slug]'>) {
   const { slug } = await params;
-  const page = source.getPage(slug.slice(0, -1));
+  // The slug's first segment is the locale, the last is "image.webp".
+  const slugSegments = slug.slice(0, -1);
+  const locale = slugSegments[0];
+  const page = source.getPage(slugSegments.slice(1), locale);
   if (!page) notFound();
 
   return new ImageResponse(

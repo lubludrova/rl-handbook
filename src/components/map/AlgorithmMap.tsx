@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   VIEW_H,
@@ -237,6 +238,22 @@ export function AlgorithmMap() {
   const svgRef = useRef<SVGSVGElement>(null);
   const pointersRef = useRef(new Map<number, { x: number; y: number }>());
   const dragDistRef = useRef(0);
+
+  // Resolve the active language from the URL so chapter links point at the
+  // correct locale. The default language (en) has no prefix; only `zh` is
+  // prefixed. Without this, every node link in the Chinese site pointed at the
+  // bare `/docs/...` path and the navigation would hang / 404.
+  const pathname = usePathname();
+  const segments = pathname.split('/').filter(Boolean);
+  const lang = segments[0] === 'zh' ? 'zh' : 'en';
+  const localizedHref = useCallback(
+    (href?: string): string => {
+      if (!href) return '';
+      if (lang === 'en') return href;
+      return href.startsWith('/') ? `/zh${href}` : href;
+    },
+    [lang],
+  );
 
   const [view, setView] = useState<ViewState>({ x: 0, y: 0, k: 1 });
   const [hovered, setHovered] = useState<string | null>(null);
@@ -895,7 +912,7 @@ export function AlgorithmMap() {
 
           {selectedNode.href ? (
             <Link
-              href={selectedNode.href}
+              href={localizedHref(selectedNode.href)}
               className="icon-link mt-3 inline-block font-heading text-xs font-semibold uppercase underline underline-offset-4"
               style={{ letterSpacing: '0.08em', color: 'var(--color-fd-foreground)' }}
             >
@@ -951,7 +968,7 @@ export function AlgorithmMap() {
 
           {selectedFamilyMeta.href ? (
             <Link
-              href={selectedFamilyMeta.href}
+              href={localizedHref(selectedFamilyMeta.href)}
               className="icon-link mt-3 inline-block font-heading text-xs font-semibold uppercase underline underline-offset-4"
               style={{ letterSpacing: '0.08em', color: 'var(--color-fd-foreground)' }}
             >

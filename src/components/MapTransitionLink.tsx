@@ -1,6 +1,6 @@
 'use client';
 
-import { useRouter } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { VIEW_H, VIEW_W } from './map/map-data';
 import { MapMorphOverlay } from './MapMorphOverlay';
@@ -13,27 +13,34 @@ interface RestView {
 
 export function MapTransitionLink() {
   const router = useRouter();
+  const pathname = usePathname();
   const [morphing, setMorphing] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
   const [restView, setRestView] = useState<RestView>({ x: 0, y: 0, k: 1 });
   const navedRef = useRef(false);
 
+  // Extract current language from pathname. Default language (en) has no
+  // prefix in the URL; only `zh` is prefixed.
+  const segments = pathname.split('/').filter(Boolean);
+  const lang = segments[0] === 'zh' ? 'zh' : 'en';
+  const mapUrl = lang === 'en' ? '/map' : '/zh/map';
+
   useEffect(() => {
-    router.prefetch('/map');
-  }, [router]);
+    router.prefetch(mapUrl);
+  }, [router, mapUrl]);
 
   const handleNavigate = useCallback(() => {
     if (navedRef.current) return;
     navedRef.current = true;
-    router.push('/map?warp=1');
-  }, [router]);
+    router.push(`${mapUrl}?warp=1`);
+  }, [router, mapUrl]);
 
   function openMap(event: React.MouseEvent<HTMLAnchorElement>) {
     event.preventDefault();
     if (morphing) return;
 
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-      router.push('/map');
+      router.push(mapUrl);
       return;
     }
 
@@ -51,7 +58,7 @@ export function MapTransitionLink() {
   return (
     <>
       <a
-        href="/map"
+        href={mapUrl}
         onClick={openMap}
         aria-label="Explore the Map of RL"
         aria-disabled={morphing}

@@ -1,10 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { i18nMiddleware } from '@/lib/source';
 
 const BYPASS_COOKIE = 'rlh_preview';
 
+// `i18nMiddleware` is typed as NextProxy (request, event), but Next.js only passes the request.
+// Cast it to a single-argument function to satisfy the runtime signature.
+const runI18nMiddleware = i18nMiddleware as (request: NextRequest) => ReturnType<typeof i18nMiddleware>;
+
 export function proxy(req: NextRequest) {
   if (process.env.MAINTENANCE_MODE !== 'true') {
-    return NextResponse.next();
+    return runI18nMiddleware(req);
   }
 
   const bypassSecret = process.env.MAINTENANCE_BYPASS;
@@ -27,7 +32,7 @@ export function proxy(req: NextRequest) {
     }
 
     if (req.cookies.get(BYPASS_COOKIE)?.value === bypassSecret) {
-      return NextResponse.next();
+      return runI18nMiddleware(req);
     }
   }
 
@@ -43,7 +48,8 @@ export function proxy(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/((?!_vercel).*)'],
+  // Exclude static assets and non-HTML routes from the middleware matcher.
+  matcher: ['/((?!api|_next/static|_next/image|favicon.ico|og|docs-assets|llms\\.mdx|llms\\.txt|llms-full\\.txt|feed\\.xml|icon\\.svg|sitemap\\.xml|robots\\.txt).*)'],
 };
 
 const MAINTENANCE_HTML = `<!doctype html>

@@ -1,11 +1,14 @@
 import { docs } from 'collections/server';
 import { type InferPageType, loader } from 'fumadocs-core/source';
 import { lucideIconsPlugin } from 'fumadocs-core/source/lucide-icons';
+import { createI18nMiddleware } from 'fumadocs-core/i18n/middleware';
+import { i18n } from '@/lib/i18n';
 
 // See https://fumadocs.dev/docs/headless/source-api for more info
 export const source = loader({
   baseUrl: '/docs',
   source: docs.toFumadocsSource(),
+  i18n,
   plugins: [lucideIconsPlugin()],
   pageTree: {
     transformers: [
@@ -24,8 +27,16 @@ export const source = loader({
   },
 });
 
+export const i18nMiddleware = createI18nMiddleware({
+  defaultLanguage: 'en',
+  languages: ['en', 'zh'],
+  hideLocale: 'default-locale',
+});
+
 export function getPageImage(page: InferPageType<typeof source>) {
-  const segments = [...page.slugs, 'image.webp'];
+  // Include the locale as the first segment so OG image URLs distinguish
+  // between languages (e.g. /og/docs/en/... vs /og/docs/zh/...).
+  const segments = [page.locale, ...page.slugs, 'image.webp'];
 
   return {
     segments,

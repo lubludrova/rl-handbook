@@ -1,0 +1,13 @@
+{
+  "title": "基于值的方法",
+  "defaultOpen": true,
+  "pages": [
+    "multi-armed-bandits",
+    "mdp",
+    "dynamic-programming",
+    "monte-carlo-and-temporal-difference",
+    "sarsa-and-q-learning",
+    "dqn",
+    "dqn-improvements"
+  ]
+}
