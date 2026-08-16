@@ -36,7 +36,8 @@ export const i18nMiddleware = createI18nMiddleware({
 export function getPageImage(page: InferPageType<typeof source>) {
   // Include the locale as the first segment so OG image URLs distinguish
   // between languages (e.g. /og/docs/en/... vs /og/docs/zh/...).
-  const segments = [page.locale, ...page.slugs, 'image.webp'];
+  // `next/og.js` (used by the OG route) renders PNG, hence the .png extension.
+  const segments = [page.locale, ...page.slugs, 'image.png'];
 
   return {
     segments,

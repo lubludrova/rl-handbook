@@ -1,7 +1,7 @@
 import { getPageImage, source } from '@/lib/source';
 import { notFound } from 'next/navigation';
-import { ImageResponse } from '@takumi-rs/image-response';
-import { generate as DefaultImage } from 'fumadocs-ui/og/takumi';
+import { ImageResponse } from 'next/og.js';
+import { generate as DefaultImage } from 'fumadocs-ui/og';
 
 export const revalidate = false;
 
@@ -18,7 +18,6 @@ export async function GET(_req: Request, { params }: RouteContext<'/og/docs/[...
     {
       width: 1200,
       height: 630,
-      format: 'webp',
     },
   );
 }

@@ -6,7 +6,6 @@ const withMDX = createMDX();
 
 /** @type {import('next').NextConfig} */
 const config = {
-  serverExternalPackages: ['@takumi-rs/image-response'],
   // Replace `next-themes` (which injects an inline <script> that triggers the
   // React 19 "Encountered a script tag" warning on client navigations) with a
   // drop-in implementation that avoids rendering scripts inside components.

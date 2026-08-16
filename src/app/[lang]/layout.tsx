@@ -3,7 +3,6 @@ import { Analytics } from '@vercel/analytics/next';
 import { SpeedInsights } from '@vercel/speed-insights/next';
 import type { Metadata } from 'next';
 import { JsonLd } from '@/components/JsonLd';
-import { I18nProvider } from '@/components/I18nProvider';
 
 const siteUrl = 'https://rl-handbook.com';
 const websiteSchema = {
@@ -101,12 +100,23 @@ export default async function Layout({ children, params }: LayoutProps<'/[lang]'
         >
           {lang === 'zh' ? '跳转到内容' : 'Skip to content'}
         </a>
-        <RootProvider>
-          <I18nProvider lang={lang}>
-            <div id="main-content" className="contents">
-              {children}
-            </div>
-          </I18nProvider>
+        {/* Pass i18n directly to RootProvider so that its internal
+            I18nProvider wraps EVERYTHING (including the search dialog rendered
+            by SearchProvider). This lets the search dialog read the active
+            locale; otherwise searches fall back to English and Chinese results
+            get filtered out. */}
+        <RootProvider
+          i18n={{
+            locale: lang,
+            locales: [
+              { name: 'English', locale: 'en' },
+              { name: '中文', locale: 'zh' },
+            ],
+          }}
+        >
+          <div id="main-content" className="contents">
+            {children}
+          </div>
         </RootProvider>
         <JsonLd id="website-json-ld" data={websiteSchema} />
         <JsonLd id="book-json-ld" data={bookSchema} />
