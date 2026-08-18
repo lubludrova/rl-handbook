@@ -11,7 +11,7 @@ import {
 } from 'fumadocs-ui/layouts/docs/page';
 import { notFound, redirect } from 'next/navigation';
 import { getMDXComponents } from '@/components/mdx';
-import { getLangFromPath, t } from '@/lib/ui';
+import { getLangFromPath, t, type UILang } from '@/lib/ui';
 import type { Metadata } from 'next';
 import { createRelativeLink } from 'fumadocs-ui/mdx';
 
@@ -53,7 +53,7 @@ export default async function Page(props: PageProps<'/[lang]/docs/[[...slug]]'>)
   const page = source.getPage(params.slug, lang);
   if (!page) notFound();
 
-  const MDX = page.data.body;
+  const { body: MDX, toc } = await page.data.load();
   // `page.url` already includes the locale prefix for non-default languages.
   const pageUrl = `${siteUrl}${page.url}`;
   const articleSchema = {
@@ -79,7 +79,7 @@ export default async function Page(props: PageProps<'/[lang]/docs/[[...slug]]'>)
 
   return (
     <DocsPage
-      toc={page.data.toc}
+      toc={toc}
       full={page.data.full}
       breadcrumb={{ enabled: true, includePage: true }}
     >
@@ -99,7 +99,7 @@ export default async function Page(props: PageProps<'/[lang]/docs/[[...slug]]'>)
               background: 'transparent',
             }}
           >
-            {t(lang, 'article.copyMarkdown')}
+            {t(lang as UILang, 'article.copyMarkdown')}
           </MarkdownCopyButton>
           <ArticleFeedback url={pageUrl} title={page.data.title} />
         </div>

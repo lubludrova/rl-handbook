@@ -30,6 +30,15 @@ export interface Messages {
   /** nav link label for the Map / 图谱 page */
   'nav.map': string;
 
+  /** docs page: copy-as-markdown button label */
+  'article.copyMarkdown': string;
+  /** docs page: feedback button label */
+  'article.feedback': string;
+  /** docs page: feedback button label while opening */
+  'article.feedbackOpening': string;
+  /** docs page: feedback button aria-label */
+  'article.feedbackAria': string;
+
   /** Map page: page heading */
   'map.title': string;
   /** Map page: subtitle under the heading */
