@@ -12,7 +12,7 @@ One warning before the map begins: this is not a clean tree. PPO is a policy-gra
 
 The deepest divide in RL is between **model-based** and **model-free** methods.
 
-A **model** in RL is an explicit representation of the environment's dynamics: given state $s$ and action $a$, what state will follow, and what reward will the agent receive? Formally, it approximates $P(s' \mid s, a)$ and $R(s, a)$, the transition distribution and reward function (the are defined precisely in the MDP chapter).
+A **model** in RL is an explicit representation of the environment's dynamics: given state $s$ and action $a$, what state will follow, and what reward will the agent receive? Formally, it approximates $P(s' \mid s, a)$ and $R(s, a)$, the transition distribution and reward function (these are defined precisely in the MDP chapter).
 
 **Model-based** methods use or learn such a representation. With a model, the agent can simulate future trajectories without interacting with the real environment: it can plan ahead. The benefit is **sample efficiency**: each real interaction can be leveraged to generate many synthetic training examples. The risk is **model bias**: if the learned model is wrong, the policy will exploit that inaccuracy rather than solving the real problem. A model that slightly underestimates the cost of a dangerous action, for example, will produce a policy that reliably takes that action, because the policy optimizes against the model, not the true environment.
 

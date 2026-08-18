@@ -122,7 +122,7 @@ This update is almost the same shape as policy evaluation. The difference is the
 After repeated sweeps, the values approach $v_*$. A greedy policy is then extracted from the final value function:
 
 $$
-\pi(s) = \arg\max_a \sum_{s',r} p(s', r \mid s, a) \left[r + \gamma v(s')\right]
+\pi^*(s) = \arg\max_a \sum_{s',r} p(s', r \mid s, a) \left[r + \gamma v_*(s')\right]
 $$
 
 On small problems such as Cliff Walking, value iteration often needs fewer total sweeps than full policy iteration because it does not evaluate every intermediate policy to high precision. Both methods converge to the same optimal value function $v_*$ and an optimal policy.
