@@ -67,15 +67,15 @@ export function getPageImage(page: InferPageType<typeof source>) {
 }
 
 export async function getLLMText(page: InferPageType<typeof source>) {
-  await page.data.load();
+  if (page.locale === i18n.defaultLanguage) {
+    await page.data.load();
+    const processed = await page.data.getText('processed');
+    return `# ${page.data.title}\n\n${processed}`;
+  }
+
   // Chinese pages are compiled at runtime without postprocessing, so
-  // `processed` markdown is unavailable there — fall back to raw content.
-  const text =
-    page.locale === i18n.defaultLanguage
-      ? await page.data.getText('processed')
-      : await page.data.getText('raw');
-
-  return `# ${page.data.title}
-
-${text}`;
+  // `processed` markdown is unavailable — read the raw file instead (no
+  // runtime MDX compilation involved).
+  const raw = await page.data.getText('raw');
+  return `# ${page.data.title}\n\n${raw}`;
 }

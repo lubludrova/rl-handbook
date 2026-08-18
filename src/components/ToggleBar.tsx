@@ -1,7 +1,8 @@
 'use client';
 
-import { useEffect, useState, type ComponentProps } from 'react';
-import { Check, Languages, Moon, Sun } from 'lucide-react';
+import { useEffect, useState, useTransition, type ComponentProps } from 'react';
+import { Check, Languages, LoaderCircle, Moon, Sun } from 'lucide-react';
+import { usePathname, useRouter } from 'next/navigation';
 import {
   Popover,
   PopoverClose,
@@ -24,9 +25,27 @@ const iconButton =
 /**
  * Square language button with a dropdown menu. Shared between the desktop
  * sidebar top row and the mobile drawer top row.
+ *
+ * Navigates directly to the same page in the target language (the default
+ * language has no URL prefix, so switching zh → en must NOT go through
+ * `/en/...`, which would cost an extra middleware redirect round trip).
+ * Shows a spinner while the navigation is in flight so users see that
+ * something is happening.
  */
 export function LanguageButton({ className }: { className?: string }) {
-  const { locale, locales, onChange } = useI18n();
+  const { locale, locales } = useI18n();
+  const router = useRouter();
+  const pathname = usePathname();
+  const [pending, startTransition] = useTransition();
+
+  const switchTo = (next: string) => {
+    if (next === locale) return;
+    const stripped = pathname.replace(/^\/zh/, '') || '/';
+    const target = next === 'en' ? stripped : `/${next}${stripped}`;
+    startTransition(() => {
+      router.push(target);
+    });
+  };
 
   return (
     <Popover>
@@ -37,7 +56,11 @@ export function LanguageButton({ className }: { className?: string }) {
           aria-label="Choose a language"
           title="Choose a language"
         >
-          <Languages />
+          {pending ? (
+            <LoaderCircle className="animate-spin" />
+          ) : (
+            <Languages />
+          )}
         </button>
       </PopoverTrigger>
       <PopoverContent align="start" className="flex flex-col gap-0.5 p-1.5">
@@ -46,7 +69,7 @@ export function LanguageButton({ className }: { className?: string }) {
             <button
               type="button"
               className="flex items-center justify-between gap-2 rounded-md px-2 py-1.5 text-start text-sm transition-colors hover:bg-fd-accent hover:text-fd-accent-foreground"
-              onClick={() => onChange?.(item.locale)}
+              onClick={() => switchTo(item.locale)}
             >
               {item.name}
               {item.locale === locale && (

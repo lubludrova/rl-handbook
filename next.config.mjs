@@ -69,6 +69,15 @@ const config = {
         source: '/docs/:path*.mdx',
         destination: '/llms.mdx/docs/:path*',
       },
+      {
+        // Locale-prefixed markdown URLs (e.g. /zh/docs/dqn.mdx). The i18n
+        // middleware internally rewrites /docs/... to /en/docs/..., so the
+        // unprefixed pattern above never matches on the branch with i18n —
+        // handle prefixed paths explicitly and pass the locale through the
+        // path (Next.js rewrites do not support query parameter injection).
+        source: '/:lang/docs/:path*.mdx',
+        destination: '/llms.mdx/docs/:lang/:path*',
+      },
     ];
   },
 };
