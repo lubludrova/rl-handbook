@@ -112,6 +112,16 @@ export default async function Layout({ children, params }: LayoutProps<'/[lang]'
               { name: 'English', locale: 'en' },
               { name: '中文', locale: 'zh' },
             ],
+            // Only localize the table-of-contents labels here; the search
+            // dialog stays in its default (English) form per earlier decision.
+            translations:
+              lang === 'zh'
+                ? {
+                    'On this page(table of contents)': '本页目录',
+                    'Table of Contents(inline table of contents)': '目录',
+                    'No Headings(table of contents)': '本节暂无标题',
+                  }
+                : {},
           }}
         >
           <div id="main-content" className="contents">

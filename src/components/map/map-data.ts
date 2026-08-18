@@ -723,27 +723,27 @@ const nodeZh: Record<string, { label?: string; blurb?: string }> = {
 
 const familyZh: Record<FamilyId, { label?: string; blurb?: string }> = {
   foundations: {
-    label: 'Foundations',
+    label: '基础',
     blurb:
       '一切方法所依赖的思想：赌博机探索、MDP 形式化、贝尔曼规划，以及从原始经验中学习价值。',
   },
   value: {
-    label: 'Value-Based',
+    label: '基于值',
     blurb:
       '学习每个动作有多好，然后贪婪地行动。从表格型 TD 控制到攻克雅达利的深度 Q 网络。',
   },
   policy: {
-    label: 'Policy-Based',
+    label: '基于策略',
     blurb:
       '直接优化参数化策略：REINFORCE、Actor-Critic、信任区域以及连续控制变体。',
   },
   planning: {
-    label: 'Decision-Time Planning',
+    label: '决策时规划',
     blurb:
       '在选择下一步动作时使用模型：从当前状态模拟可能的未来，运行搜索或优化，然后按最佳方案行动。',
   },
   background: {
-    label: 'Background Training',
+    label: '后台训练',
     blurb:
       '在环境之外使用学习到的模型生成合成经验，再在这些想象转移上训练值函数或 Actor-Critic。',
   },
