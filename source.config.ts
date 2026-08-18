@@ -7,6 +7,7 @@ export const docs = defineDocs({
   dir: 'content/docs',
   docs: {
     schema: pageSchema,
+    async: true,
     postprocess: {
       includeProcessedMarkdown: true,
     },
