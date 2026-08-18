@@ -12,6 +12,8 @@ A comprehensive guide to Reinforcement Learning.
 
 **[Read the handbook online →](https://rl-handbook.com)**
 
+**English** | [简体中文](README.zh-CN.md)
+
 </div>
 
 ---
