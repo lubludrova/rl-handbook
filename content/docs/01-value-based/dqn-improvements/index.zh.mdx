@@ -1,0 +1,194 @@
+---
+title: DQN 改进
+description: "理解 Double DQN、Dueling DQN、优先经验回放与 Rainbow 如何修复原始 DQN 的具体弱点。"
+---
+
+> **摘要.** 原始 DQN 让神经 Q-learning 得以工作，但它仍有清晰的失败模式：过高估计的价值、浪费的网络容量、忽视信息量转移的均匀回放、弱探索，以及让回报不确定性坍缩为标量目标。主要的 DQN 改进最好被理解为针对性的修补。Double DQN 修复 max 偏差，Dueling DQN 改变表示，优先经验回放改变采样分布，Rainbow 把多个修复合并为一个智能体。
+
+DQN 一章介绍了基础配方：一个神经 Q 函数 $Q_\theta$、一个回放缓冲 $\mathcal{D}$，和一个目标网络 $Q_{\theta^-}$。目标是：
+
+$$
+y = r + \gamma \max_{a'} Q_{\theta^-}(s',a')
+$$
+
+本章把该配方放在眼前，并问还有什么会出错。下面每个改进都改变流水线的一个部分：目标、网络头部、回放采样器、回报目标、探索机制，或预测对象本身。
+
+## 过高估计偏差
+
+原始 DQN 目标对带噪声的价值估计取 max。那个 max 是乐观的：如果多个动作有不确定估计，最大的那个往往偏大，部分原因是估计误差，而不是因为该动作真的更好。
+
+问题不在于 DQN 在模糊意义上"太有希望"。问题在于机制。同一组数字被用了两次：先用来选择最好看的动作，然后再用来评估那个被选的动作。当所有估计都含噪声时，被选的动作不成比例地可能是那个噪声恰好为正动作。
+
+在期望上，这产生了向上的偏差：
+
+$$
+\mathbb{E}\left[\max_a \hat Q(s,a)\right] \geq \max_a \mathbb{E}[\hat Q(s,a)]
+$$
+
+这不只是个好看的价值尺度问题。因为 DQN 自举，过高估计的目标可以被传播到更早的状态。如果策略随后相对于这些估计贪婪行动，它可能追逐那些只是因为噪声而看起来好的动作。
+
+## Double DQN
+
+**Double DQN** 通过把动作选择与动作评估解耦来修复偏差。在线网络选择下一个动作：
+
+$$
+a^* = \arg\max_{a'} Q_\theta(s',a')
+$$
+
+目标网络评估那个被选中的动作：
+
+$$
+y = r + \gamma Q_{\theta^-}(s', a^*)
+$$
+
+写成一行：
+
+$$
+y = r + \gamma Q_{\theta^-}\left(s', \arg\max_{a'} Q_\theta(s',a')\right)
+$$
+
+目标网络并不是一个完全独立的估计器；它只是在线网络的一个陈旧副本。但它已经足够不同，可以减轻"用同一噪声选择并评估"的问题。改动很小，但它直接针对 max 偏差这一失败模式。
+
+这就是为什么 Double DQN 是一种最小扩展，而非一个新架构。DQN 已经有两个网络：在线网络 $Q_\theta$ 和目标网络 $Q_{\theta^-}$。Double DQN 只改变了它们的使用方式。在线网络被信任去选择贪婪动作；目标网络被信任去给该动作打分。
+
+```python
+def double_dqn_targets(
+    rewards: torch.Tensor,
+    dones: torch.Tensor,
+    next_q_online: torch.Tensor,
+    next_q_target: torch.Tensor,
+    gamma: float,
+) -> torch.Tensor:
+    """Double DQN 目标：在线网络选择贪婪动作，目标网络评估。"""
+    with torch.no_grad():
+        next_actions = next_q_online.argmax(dim=1, keepdim=True)
+        next_values = next_q_target.gather(dim=1, index=next_actions).squeeze(1)
+        targets = rewards + gamma * (1.0 - dones) * next_values
+    return targets
+```
+
+## Dueling DQN
+
+原始 DQN 为每个动作输出一个值，而那条单一流必须同时承载两件不同的事：状态本身有多好，以及每个动作改变了多少。把它们分开写会有所帮助。状态价值
+
+$$
+V(s) = \mathbb{E}_{a \sim \pi}[Q(s,a)]
+$$
+
+捕捉第一部分，优势
+
+$$
+A(s,a) = Q(s,a) - V(s)
+$$
+
+捕捉第二部分，按构造有 $Q(s,a) = V(s) + A(s,a)$。
+
+为什么这种拆分有帮助？对 $(s,a,r,s')$ 的一次 TD 更新只触及实际采取动作对应的头部，因此单流网络必须为它在 $s$ 中看到的每个动作重新学习"这个状态有价值"。如果 $V(s)$ 是一个共享组件，那么每次经过 $s$ 的转移都会更新它，无论采样到的是哪个动作。除此之外，贪婪策略只依赖于同一状态中 Q 值的差异，而那些差异就是优势。直接建模 $A(s,a)$ 把这些小但和决策相关的差距放到它们自己的尺度上，而不是把它们藏进两个大部分相互抵消的大 Q 值之中。
+
+**Dueling DQN** 把这种分解变成一种架构选择。网络有一个共享躯干和两个头部，一个输出 $V_\theta(s)$，一个为每一个动作输出 $A_\theta(s,a)$。它们用可辨识性修正重新组合成 Q 值：
+
+$$
+Q(s,a) = V(s) + \left(A(s,a) - \frac{1}{|\mathcal{A}|}\sum_{a'} A(s,a')\right)
+$$
+
+减法很重要。没有它，$Q=V+A$ 是不确定的：给 $V$ 加一个常数并把它从每个优势中减去，会得到相同的 Q 值。对优势取均值减除，足以固定这个分解，从而稳定优化。
+
+Dueling DQN 不改变贝尔曼目标。它改变表示，使网络能分别学习"这个状态有多好？"和"这里哪个动作比其它动作更好？"
+
+这种区分正是为什么 dueling 是一个架构改进，而不是探索或目标改进的技巧。它可以与 Double DQN 和回放变体结合，因为它保持了更新规则不变。
+
+```python
+class DuelingQNetwork(nn.Module):
+    """带 V(s) 和 A(s, a) 头部的共享躯干；重组为 Q = V + (A - mean A)。"""
+
+    def __init__(self, state_dim: int, hidden_dim: int, n_actions: int) -> None:
+        super().__init__()
+        self.torso = nn.Sequential(
+            nn.Linear(state_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.ReLU(),
+        )
+        self.value_head = nn.Linear(hidden_dim, 1)
+        self.advantage_head = nn.Linear(hidden_dim, n_actions)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """前向传播：状态 -> dueling Q 值。"""
+        h = self.torso(x)
+        v = self.value_head(h)
+        a = self.advantage_head(h)
+        a_centered = a - a.mean(dim=1, keepdim=True)
+        return v + a_centered
+```
+
+## 优先经验回放
+
+均匀回放以相等概率采样每个存储的转移。这很简单，但它把更新浪费在那些网络已经预测得很好的转移上，而罕见而令人意外的转移可能要等很久才能被重放。
+
+**优先经验回放**（Prioritized Experience Replay, PER）根据转移 $i$ 的优先级以概率采样它：
+
+$$
+P(i) = \frac{p_i^\alpha}{\sum_k p_k^\alpha}
+$$
+
+通常 $p_i$ 基于 TD 误差的大小，$p_i = |\delta_i| + \epsilon$，其中 $\delta_i = y_i - Q_\theta(s_i, a_i)$ 是该转移上次更新的 TD 误差。绝对值把高估和低估都视为同等有信息量，而小常数 $\epsilon > 0$ 让每个优先级严格为正，这样一时误差为零的转移以后仍可被重放。$P(i)$ 中的指数 $\alpha$ 控制优先级使用的强度。当 $\alpha=0$ 时，采样是均匀的。更大的 $\alpha$ 趋向于贪婪地重放高误差转移。
+
+TD 误差只是有用性的代理。大的 $|\delta|$ 通常意味着该转移有信息量，但它也可能因为与可学习信号无关的原因而大：一个随机环境，相同的状态-动作对返回不同的奖励；一个用更旧网络权重计算的陈旧优先级；或者来自仍不确定的 $Q_{\theta^-}$ 的带噪声自举目标。纯粹的贪婪回放会不断回到这类样本，牺牲缓冲的其余部分。带 $\alpha < 1$ 的随机优先级让每个转移都可达，同时仍偏向那些误差更高的。
+
+优先采样改变了训练分布，这打破了标准 TD 更新中内置的一个假设：无偏梯度是对均匀抽取转移的期望。如果我们从高误差状态采样得更频繁，那个期望就不再是我们在估计的东西，价值函数会被过多拉向那些状态。重要性采样通过用样本被抽取概率的倒数给每个梯度加权来纠正：
+
+$$
+w_i = \left(\frac{1}{N \cdot P(i)}\right)^\beta
+$$
+
+当 $\beta = 1$ 时，纠正是精确的：一个比均匀多采样 $k$ 倍的转移，每次更新只贡献 $1/k$，从而恢复原始的均匀期望。当 $\beta = 0$ 时，不施加任何纠正。PER 通常在训练中把 $\beta$ 从一个小值退火到 $1$。早期，有偏但更聚焦的梯度学得更早；之后，当价值估计接近一个不动点时，渐近无偏性对稳定收敛更重要。权重通常用 $\max_i w_i$ 归一化，以使梯度量级保持有界。
+
+## 多步目标、噪声网络与分布式 RL
+
+还有一些扩展，对下一个模型会很有用。
+
+**多步回报**（multi-step returns）在自举之前用几个观测到的奖励替换单步目标：
+
+$$
+R_t^{(n)} + \gamma^n \max_{a'} Q(S_{t+n},a')
+$$
+
+这比单步目标更快地传播奖励，代价是更多方差，以及当回放数据在更旧的行为策略下收集时的一些异策略偏差。
+
+与前面 MC/TD 一章的联系是直接的：单步 DQN 接近 TD(0)，而多步 DQN 在自举之前等待一个短的采样回报。Rainbow 用它来更快地把稀疏奖励沿重放轨迹向后传播。
+
+**噪声网络**（Noisy Nets）用手工设计的 $\epsilon$-贪婪探索替换为网络内部可学习的参数噪声。它不在每步添加随机动作噪声，而是采样一个带噪声的价值函数，并相对于它贪婪行动。这能产生比独立随机动作在时间上更一致的探索。
+
+**分布式 RL**（distributional RL）预测完整的回报分布 $Z(s,a)$，而非仅其期望 $Q(s,a)=\mathbb{E}[Z(s,a)]$。策略仍按期望回报行动，但学习目标包含关于不确定性、多模态和罕见结果的更丰富信息。完整的类别投影机制超出了本章范围。
+
+## Rainbow
+
+**Rainbow** 组合了六个 DQN 扩展：
+
+1. Double DQN
+2. 优先经验回放
+3. Dueling 网络
+4. 多步回报
+5. 带 C51 的分布式 RL
+6. 噪声网络
+
+Rainbow 的重点不在于每个组件都是新的。它的贡献在于整合与消融（ablation）：把主要的 DQN 改进放进一个 Atari 智能体中，并问哪些在组合后仍然重要。
+
+这种框架很重要，因为改进不一定线性叠加。两个组件可能修复同一个失败模式，或一个组件可能让另一个变得不那么重要。因此 Rainbow 最好既被当作一篇算法论文，也被当作一篇消融论文来读。
+
+汇总结果很强：Rainbow 在 no-op starts 模式下达到了 223% 的中位人类归一化 Atari 分数（每个评估片段以随机数量的"什么都不做"动作开始，最多 30 个，这样智能体无法记住一个确定性的开局）。消融同样重要。优先回放、多步回报和分布式 RL 是最大的贡献者。噪声网络帮助较温和。Double DQN 和 Dueling DQN 在整个 Rainbow 智能体内没有产生显著的汇总效果，可能因为有限的分布支撑已经减少了过高估计，而分布式头部部分吸收了 dueling 的表示收益。
+
+## 完整代码
+
+完整可运行示例在 CartPole-v1 上训练带 dueling 头部的 Double DQN，叠加在上一章的原始 DQN 设置之上。回放是均匀的。优先经验回放、多步回报、噪声网络和分布式 RL 在本章讨论过，但未在此文件中实现。
+
+[`dqn-improvements.py`](https://github.com/lubludrova/rl-handbook/blob/main/content/docs/01-value-based/dqn-improvements/dqn-improvements.py)
+
+你可能还会发现以下实现很有用：
+- [Boyu AI：DQN 改进](https://github.com/boyu-ai/Hands-on-RL/blob/main/第8章-DQN改进算法.ipynb)
+- [Yandex Practical RL：近似 RL](https://github.com/yandexdataschool/Practical_RL/tree/master/week04_approx_rl)
+- [Kaixhin/Rainbow](https://github.com/Kaixhin/Rainbow)
+
+## 接下来是什么
+
+这收尾了基于值的一系列内容：从赌博机到 MDP、动态规划、无模型预测、表格控制、DQN，以及主要的 DQN 变体。下一节改变被学习的对象。策略梯度方法不再通过 $\arg\max$ 从 $Q$ 推导策略，而是直接参数化策略。

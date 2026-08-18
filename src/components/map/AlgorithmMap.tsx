@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   VIEW_H,
@@ -8,6 +9,7 @@ import {
   continuations,
   edges,
   familyMeta,
+  localize,
   nodes,
   regions,
 
@@ -15,6 +17,7 @@ import {
   type MapNode,
   type NodeStatus,
 } from './map-data';
+import { getLangFromPath, t } from '@/lib/ui';
 
 interface ViewState {
   x: number;
@@ -199,7 +202,25 @@ function nodeMatchScore(node: MapNode, selected: SelectedFacets) {
   return { pass: true, score };
 }
 
-function optionLabel(id: string) {
+// Map a finder tag id to its UI dictionary key so option labels can be
+// localized without altering the programmatic tag ids.
+const optionKeyByTag: Record<string, keyof import('@/lib/ui').Messages> = {
+  'model-free': 'map.opt.modelFree',
+  'model-based': 'map.opt.modelBased',
+  'value-based': 'map.opt.valueBased',
+  'policy-based': 'map.opt.policyBased',
+  'actor-critic': 'map.opt.actorCritic',
+  'on-policy': 'map.opt.onPolicy',
+  'off-policy': 'map.opt.offPolicy',
+  'discrete-actions': 'map.opt.discreteActions',
+  'continuous-actions': 'map.opt.continuousActions',
+  'stochastic-policy': 'map.opt.stochasticPolicy',
+  'deterministic-policy': 'map.opt.deterministicPolicy',
+};
+
+function optionLabel(id: string, lang: import('@/lib/ui').UILang) {
+  const key = optionKeyByTag[id];
+  if (key) return t(lang, key);
   for (const group of finderGroups) {
     const option = group.options.find((item) => item.id === id);
     if (option) return option.label;
@@ -237,6 +258,24 @@ export function AlgorithmMap() {
   const svgRef = useRef<SVGSVGElement>(null);
   const pointersRef = useRef(new Map<number, { x: number; y: number }>());
   const dragDistRef = useRef(0);
+
+  // Resolve the active language from the URL so chapter links point at the
+  // correct locale and the labels/UI text are localized. The default language
+  // (en) has no prefix; every other language is prefixed (`/zh`, `/ru`, …).
+  const pathname = usePathname();
+  const lang = getLangFromPath(pathname);
+  // Shadow the module-level English data with a fully-localized snapshot so
+  // every downstream `nodes` / `familyMeta` / `regions` / `nodeById` read is
+  // already in the active language.
+  const { nodes, familyMeta, regions, nodeById } = localize(lang);
+  const localizedHref = useCallback(
+    (href?: string): string => {
+      if (!href) return '';
+      if (lang === 'en') return href;
+      return href.startsWith('/') ? `/${lang}${href}` : href;
+    },
+    [lang],
+  );
 
   const [view, setView] = useState<ViewState>({ x: 0, y: 0, k: 1 });
   const [hovered, setHovered] = useState<string | null>(null);
@@ -527,7 +566,7 @@ export function AlgorithmMap() {
         onPointerCancel={onPointerUp}
         onClick={onBackgroundClick}
         role="group"
-        aria-label="Interactive map of reinforcement learning algorithms"
+        aria-label={t(lang, 'map.svgAria')}
       >
         <g transform={`translate(${view.x},${view.y}) scale(${view.k})`}>
           {/* Region labels — clickable family territories */}
@@ -543,7 +582,10 @@ export function AlgorithmMap() {
               role="button"
               tabIndex={0}
               focusable="true"
-              aria-label={`Show ${familyMeta[r.family].label} territory`}
+              aria-label={t(lang, 'map.showTerritory').replace(
+                '{label}',
+                familyMeta[r.family].label,
+              )}
               aria-pressed={selectedFamily === r.family}
               style={{
                 fontSize: r.size ?? 26,
@@ -637,7 +679,7 @@ export function AlgorithmMap() {
                 tabIndex={isMatched ? 0 : -1}
                 focusable={isMatched ? 'true' : 'false'}
                 aria-label={`${n.label}${n.year ? `, ${n.year}` : ''}. ${
-                  n.comingSoon ? 'Chapter coming soon.' : 'Chapter available.'
+                  n.comingSoon ? t(lang, 'map.chapterSoon') : t(lang, 'map.chapterAvailable')
                 }`}
                 aria-pressed={selected === n.id}
                 style={{ opacity: nodeOpacity(n), cursor: isMatched ? 'pointer' : 'default', pointerEvents: isMatched ? 'auto' : 'none' }}
@@ -724,14 +766,13 @@ export function AlgorithmMap() {
             className="font-heading text-lg font-bold leading-tight sm:text-xl"
             style={{ color: 'var(--color-fd-foreground)' }}
           >
-            The Map of RL
+            {t(lang, 'map.title')}
           </h1>
           <p
             className="font-body mt-1.5 text-xs leading-relaxed sm:text-sm"
             style={{ color: 'var(--color-fd-muted-foreground)' }}
           >
-            A curated lineage of handbook methods. Click a node for the chapter,
-            or click a territory to isolate a family.
+            {t(lang, 'map.subtitle')}
           </p>
 
           <button
@@ -746,7 +787,9 @@ export function AlgorithmMap() {
               color: finderOpen ? 'var(--color-fd-background)' : 'var(--color-fd-primary-foreground)',
             }}
           >
-            <span>{finderOpen ? 'Hide filters' : 'Find my algorithm'}</span>
+            <span>
+              {finderOpen ? t(lang, 'map.hideFilters') : t(lang, 'map.findAlgorithm')}
+            </span>
             <span>{finderActive ? `${selectedCount}` : finderOpen ? '↑' : '↓'}</span>
           </button>
 
@@ -762,7 +805,7 @@ export function AlgorithmMap() {
                   aria-live="polite"
                   style={{ letterSpacing: '0.1em', color: 'var(--color-fd-muted-foreground)' }}
                 >
-                  {visibleCount} matches
+                  {t(lang, 'map.matches').replace('{count}', String(visibleCount))}
                 </p>
                 {finderActive && (
                   <button
@@ -771,7 +814,7 @@ export function AlgorithmMap() {
                     className="cursor-pointer font-heading text-[0.65rem] uppercase underline-offset-2 hover:underline"
                     style={{ letterSpacing: '0.08em', color: 'var(--color-fd-muted-foreground)' }}
                   >
-                    Clear
+                    {t(lang, 'map.clear')}
                   </button>
                 )}
               </div>
@@ -781,8 +824,9 @@ export function AlgorithmMap() {
                   className="font-body mt-2 text-[0.74rem] leading-relaxed"
                   style={{ color: 'var(--color-fd-muted-foreground)' }}
                 >
-                  No exact match. Remove “{optionLabel(zeroSuggestion.tag)}” to see{' '}
-                  {zeroSuggestion.count} results.
+                  {t(lang, 'map.noExactMatch')
+                    .replace('{opt}', optionLabel(zeroSuggestion.tag, lang))
+                    .replace('{count}', String(zeroSuggestion.count))}
                 </p>
               )}
 
@@ -797,7 +841,7 @@ export function AlgorithmMap() {
                       className="font-heading text-[0.6rem] font-semibold uppercase"
                       style={{ letterSpacing: '0.1em', color: 'var(--color-fd-muted-foreground)' }}
                     >
-                      {group.label}
+                      {t(lang, `map.finder.${group.axis}` as keyof import('@/lib/ui').Messages)}
                     </legend>
                     <div className="mt-1 grid grid-cols-1 gap-1.5 sm:grid-cols-2">
                       {group.options.map((tag) => {
@@ -816,7 +860,7 @@ export function AlgorithmMap() {
                               onChange={() => toggleFinderFacet(group.axis, tag.id)}
                               className="size-3 accent-current"
                             />
-                            <span>{tag.label}</span>
+                            <span>{optionLabel(tag.id, lang)}</span>
                           </label>
                         );
                       })}
@@ -858,7 +902,7 @@ export function AlgorithmMap() {
             </div>
             <button
               onClick={() => setSelected(null)}
-              aria-label="Close"
+              aria-label={t(lang, 'map.close')}
               className="cursor-pointer font-heading text-sm leading-none"
               style={{ color: 'var(--color-fd-muted-foreground)' }}
             >
@@ -879,7 +923,7 @@ export function AlgorithmMap() {
                       color: 'var(--color-fd-muted-foreground)',
                     }}
                   >
-                    {chip}
+                    {optionLabel(chip, lang)}
                   </span>
                 ))}
               </div>
@@ -895,18 +939,18 @@ export function AlgorithmMap() {
 
           {selectedNode.href ? (
             <Link
-              href={selectedNode.href}
+              href={localizedHref(selectedNode.href)}
               className="icon-link mt-3 inline-block font-heading text-xs font-semibold uppercase underline underline-offset-4"
               style={{ letterSpacing: '0.08em', color: 'var(--color-fd-foreground)' }}
             >
-              Read the chapter →
+              {t(lang, 'map.readChapter')}
             </Link>
           ) : (
             <p
               className="font-heading mt-3 text-[0.65rem] uppercase"
               style={{ letterSpacing: '0.1em', color: 'var(--color-fd-muted-foreground)' }}
             >
-              Chapter coming soon
+              {t(lang, 'map.chapterComingSoon')}
             </p>
           )}
         </div>
@@ -921,7 +965,7 @@ export function AlgorithmMap() {
                 className="font-heading text-[0.65rem] font-semibold uppercase"
                 style={{ letterSpacing: '0.12em', color: 'var(--color-fd-muted-foreground)' }}
               >
-                Territory · {selectedFamilyCount} nodes
+                {t(lang, 'map.territory').replace('{count}', String(selectedFamilyCount))}
               </p>
               <h2
                 className="font-heading mt-1 text-base font-bold"
@@ -932,7 +976,7 @@ export function AlgorithmMap() {
             </div>
             <button
               onClick={() => setSelectedFamily(null)}
-              aria-label="Close"
+              aria-label={t(lang, 'map.close')}
               className="cursor-pointer font-heading text-sm leading-none"
               style={{ color: 'var(--color-fd-muted-foreground)' }}
             >
@@ -951,18 +995,18 @@ export function AlgorithmMap() {
 
           {selectedFamilyMeta.href ? (
             <Link
-              href={selectedFamilyMeta.href}
+              href={localizedHref(selectedFamilyMeta.href)}
               className="icon-link mt-3 inline-block font-heading text-xs font-semibold uppercase underline underline-offset-4"
               style={{ letterSpacing: '0.08em', color: 'var(--color-fd-foreground)' }}
             >
-              Start the chapter →
+              {t(lang, 'map.startChapter')}
             </Link>
           ) : (
             <p
               className="font-heading mt-3 text-[0.65rem] uppercase"
               style={{ letterSpacing: '0.1em', color: 'var(--color-fd-muted-foreground)' }}
             >
-              Chapters coming soon
+              {t(lang, 'map.chaptersComingSoon')}
             </p>
           )}
         </div>
@@ -979,10 +1023,10 @@ export function AlgorithmMap() {
               <circle cx="7" cy="7" r="6.5" fill="currentColor" />
               <circle cx="22" cy="7" r="3" fill="currentColor" />
             </svg>
-            size = rough use
+            {t(lang, 'map.legendSize')}
           </span>
-          <span>○ foundation concept</span>
-          <span style={{ opacity: 0.8 }}>◌ chapter coming soon</span>
+          <span>{t(lang, 'map.legendFoundation')}</span>
+          <span style={{ opacity: 0.8 }}>{t(lang, 'map.legendComingSoon')}</span>
         </div>
       </div>
 
@@ -990,9 +1034,9 @@ export function AlgorithmMap() {
       <div className="absolute bottom-4 right-4 z-10 flex flex-col items-end gap-2">
         <div className="map-overlay-card flex overflow-hidden rounded-sm">
           {[
-            { label: '−', action: () => zoomBy(1 / 1.35), aria: 'Zoom out' },
-            { label: '⌖', action: () => setView({ x: 0, y: 0, k: 1 }), aria: 'Reset view' },
-            { label: '+', action: () => zoomBy(1.35), aria: 'Zoom in' },
+            { label: '−', action: () => zoomBy(1 / 1.35), aria: t(lang, 'map.zoomOut') },
+            { label: '⌖', action: () => setView({ x: 0, y: 0, k: 1 }), aria: t(lang, 'map.zoomReset') },
+            { label: '+', action: () => zoomBy(1.35), aria: t(lang, 'map.zoomIn') },
           ].map((b) => (
             <button
               key={b.aria}

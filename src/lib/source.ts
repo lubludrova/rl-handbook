@@ -1,11 +1,41 @@
-import { docs } from 'collections/server';
-import { type InferPageType, loader } from 'fumadocs-core/source';
+import { enDocs, meta } from 'collections/server';
+import { zhDocs } from 'collections/dynamic';
+import { type InferPageType, loader, type StaticSource } from 'fumadocs-core/source';
 import { lucideIconsPlugin } from 'fumadocs-core/source/lucide-icons';
+import { i18n } from '@/lib/i18n';
+
+// English pages are compiled at build time (async chunks), Chinese pages are
+// compiled at runtime (dynamic collection). Both are merged into a single
+// source so the existing `source.getPage(slug, lang)` API keeps working.
+type PageData = (typeof enDocs)[number] | (typeof zhDocs)[number];
+type MetaData = (typeof meta)[number];
+
+const files: StaticSource<{ pageData: PageData; metaData: MetaData }>['files'] = [
+  ...enDocs.map((entry) => ({
+    type: 'page' as const,
+    path: entry.info.path,
+    absolutePath: entry.info.fullPath,
+    data: entry,
+  })),
+  ...zhDocs.map((entry) => ({
+    type: 'page' as const,
+    path: entry.info.path,
+    absolutePath: entry.info.fullPath,
+    data: entry,
+  })),
+  ...meta.map((entry) => ({
+    type: 'meta' as const,
+    path: entry.info.path,
+    absolutePath: entry.info.fullPath,
+    data: entry,
+  })),
+];
 
 // See https://fumadocs.dev/docs/headless/source-api for more info
 export const source = loader({
   baseUrl: '/docs',
-  source: docs.toFumadocsSource(),
+  source: { files } as StaticSource<{ pageData: PageData; metaData: MetaData }>,
+  i18n,
   plugins: [lucideIconsPlugin()],
   pageTree: {
     transformers: [
@@ -25,7 +55,10 @@ export const source = loader({
 });
 
 export function getPageImage(page: InferPageType<typeof source>) {
-  const segments = [...page.slugs, 'image.webp'];
+  // Include the locale as the first segment so OG image URLs distinguish
+  // between languages (e.g. /og/docs/en/... vs /og/docs/zh/...).
+  // `next/og.js` (used by the OG route) renders PNG, hence the .png extension.
+  const segments = [page.locale, ...page.slugs, 'image.png'];
 
   return {
     segments,
@@ -34,9 +67,15 @@ export function getPageImage(page: InferPageType<typeof source>) {
 }
 
 export async function getLLMText(page: InferPageType<typeof source>) {
-  const processed = await page.data.getText('processed');
+  if (page.locale === i18n.defaultLanguage) {
+    await page.data.load();
+    const processed = await page.data.getText('processed');
+    return `# ${page.data.title}\n\n${processed}`;
+  }
 
-  return `# ${page.data.title}
-
-${processed}`;
+  // Chinese pages are compiled at runtime without postprocessing, so
+  // `processed` markdown is unavailable — read the raw file instead (no
+  // runtime MDX compilation involved).
+  const raw = await page.data.getText('raw');
+  return `# ${page.data.title}\n\n${raw}`;
 }

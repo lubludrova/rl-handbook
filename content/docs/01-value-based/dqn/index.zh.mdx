@@ -1,0 +1,199 @@
+---
+title: 深度 Q 网络 (DQN)
+description: "DQN 用神经网络替代表格 Q 值，并通过经验回放与目标网络保持稳定。"
+---
+
+> **摘要.** DQN 保留了上一章的 Q-learning 更新，但用神经网络 $Q_\theta(s,a)$ 替换了表。朴素地训练是行不通的：函数近似、自举和异策略数据的组合会导致不稳定。DQN 通过两个补充来解决——经验回放和目标网络——各自针对一种不同的失败模式。
+
+表格 Q-learning 为每个状态-动作对存储一个数。那张表对悬崖行走很有用，因为网格只有少量状态和四个动作。一旦状态变成一个连续的观测向量，它就失效了。CartPole 有四维状态；Atari 使用原始图像帧。在这两种情况下，完全相同的状态可能永远不会重复，因此表无法泛化。
+
+DQN 的举措说起来简单：用神经网络近似动作价值函数。与其显式存储 $Q(s,a)$，不如学习 $Q_\theta(s,a)$ 的参数 $\theta$。对于离散动作空间，通常的架构以一个状态作为输入，为每个动作输出一个标量——单次前向传播即可同时得到所有动作的 Q 值。
+
+<img
+  src="/docs-assets/01-value-based/dqn/architecture.png"
+  alt="DQN 架构：状态输入，动作价值向量输出"
+  style={{ maxWidth: '70%', margin: '2rem auto', display: 'block' }}
+/>
+
+贪婪动作仍是 $\arg\max_a Q_\theta(s,a)$，因此 DQN 仍然是基于值的。动作空间必须足够离散，使得所有动作价值都能放进一次前向传播。
+
+## 把 Q-learning 当作回归问题
+
+从这一点起，我们把一次转移紧凑地写作 $(s, a, r, s')$——即 $(S_t, A_t, R_{t+1}, S_{t+1})$ 去掉时间索引的简写。
+
+关键思想是把 Q-learning 当作有监督回归。贝尔曼最优方程（来自 MDP 一章）说最优动作价值函数满足：
+
+$$
+q_*(s, a) = \mathbb{E}\!\left[r + \gamma \max_{a'} q_*(s', a')\right],
+$$
+
+其中期望是对来自环境的随机奖励 $r$ 和下一状态 $s'$ 取的。对于一个采样的转移 $(s,a,r,s')$，右侧给出 $Q_\theta(s,a)$ 应是什么的一个单样本估计。我们把它用作训练目标，并最小化平方误差：
+
+$$
+y = r + \gamma \max_{a'} Q_\theta(s', a'), \qquad L(\theta) = \mathbb{E}_{(s,a,r,s')}\!\left[\bigl(y - Q_\theta(s,a)\bigr)^2\right].
+$$
+
+把这想成带有移动标签的有监督学习。输入是状态，输出是所选动作的 Q 值，$y$ 扮演回归目标的角色。在普通回归中，目标来自固定的数据集；这里它是从我们正试图训练的同一个网络计算出来的。
+
+一个微妙之处：梯度必须只流经预测 $Q_\theta(s,a)$，而不能流经 $y$。这是一个 **半梯度**（semi-gradient）更新：$y$ 在这一步被当作固定常数，即使它依赖于 $\theta$。把梯度反传到 $y$ 会让更新去追逐一个自我指涉的一致性，而不是任何外部的贝尔曼信号。
+
+更深的问题隐藏在目标公式中：预测 $Q_\theta(s,a)$ 和目标 $y$ 都依赖于同一个 $\theta$。每次梯度步改变 $\theta$，就立即移动了正在追逐的目标 $y$。优化器追逐一个移动的目标：每次更新都移动目标，所以下一次更新必须追逐一个略有不同的值，网络永远无法安定。在实践中，这个版本会发散或振荡——它就是不工作。
+
+两个结构性问题导致了失败。本章余下部分逐一解决。
+
+## 致命三元组
+
+在命名修复之前，先命名根本原因会有所帮助。DQN 处在 **致命三元组**（deadly triad）之上，即当我们将以下三个元素全部组合时，就会出现不稳定与发散的危险：
+
+1. **函数近似**（function approximation）——一个网络通过共享参数表示许多状态-动作价值。
+2. **自举**（bootstrapping）——目标包含另一个学到的价值估计 $\max_{a'} Q(s',a')$。
+3. **异策略学习**（off-policy learning）——数据可能来自更早期的探索性策略，而目标是贪婪的。
+
+每个组件单独看都很有价值。但它们合在一起，尤其是配合非线性网络时，会导致振荡或发散：更新网络的一部分会通过共享权重把变化传播到其他状态，那些被改变的估计又成为进一步更新的目标，而存储的数据可能与当前策略不匹配。DQN 并没有消除致命三元组，而是用两个稳定器驯服它——下面每个失败模式各一个。
+
+## 问题 1：相关样本
+
+第一个问题：在线收集的转移不是独立同分布的，它们在时间上高度相关。在 Atari 中，连续的帧只相差几个像素：智能体仍在同一房间，同样的敌人在几乎相同的位置。一个顺序转移的 minibatch 本质上就是同一个观测的重复。
+
+这导致两个问题。当所有样本来自游戏的同一区域时，梯度步大致指向同一方向，网络不断打磨同一小片经验。而当智能体移动到新区域时，权重开始拟合新数据，旧知识被覆盖。网络遗忘了。在实践中这表现为锯齿状的学习曲线：当智能体停留在某一区域时性能上升，一旦移动就下降。
+
+还有第二个问题。每个转移只用一次就被丢弃。这很浪费：一个罕见但有信息量、引发了大 TD 误差的转移，只得到一个梯度步，就再也不会被看到。
+
+**经验回放**（experience replay）解决了两个问题。智能体收集的每个转移都存储在一个有限缓冲 $\mathcal{D}$ 中：
+
+$$
+(s_t, a_t, r_t, s_{t+1}).
+$$
+
+<img
+  src="/docs-assets/01-value-based/dqn/experience-replay.png"
+  alt="经验回放循环：智能体在环境中行动，转移被存入回放缓冲，随机 minibatch 被采样用于训练。"
+  style={{ maxWidth: '70%', margin: '2rem auto', display: 'block' }}
+/>
+
+训练从这个缓冲中均匀随机抽样 minibatch。因为转移是随机采样的，每个 minibatch 混合了来自不同片段、不同训练阶段的数据，从而打破了时间相关性。同一个转移也可以出现在多个 minibatch 中，提高了数据效率。
+
+回放与 Q-learning 天然契合，因为 Q-learning 是异策略的。几千步前、在更大的 $\epsilon$ 和更旧的权重下收集的转移，仍然是有效的训练数据：目标是对 $s'$ 的贪婪取值，不依赖于旧的探索性策略接下来会做什么。
+
+## 问题 2：移动的目标
+
+回放让数据去相关。但它没有修复另一个问题：目标 $y = r + \gamma \max_{a'} Q_\theta(s', a')$ 是用正在被更新的同一个网络计算的。每次梯度步移动 $\theta$，就移动了 $y$，从而移动了优化器刚刚在其上工作的损失地形。
+
+**目标网络**（target networks）通过引入第二个缓慢更新的网络副本来解决这个问题。**目标网络**有参数 $\theta^-$，只用于计算自举目标。**在线网络**（online network）有参数 $\theta$，在每次梯度步都更新。有了冻结的 $\theta^-$，目标变成：
+
+$$
+y = r + \gamma \max_{a'} Q_{\theta^-}(s', a').
+$$
+
+因为 $\theta^-$ 在很多次更新中保持不变，目标会静止足够久，使一连串梯度步近似于普通的固定目标回归。
+
+**硬拷贝**（hard copy）更新每 $C$ 个梯度步覆盖目标网络：
+
+$$
+\theta^- \leftarrow \theta.
+$$
+
+Nature DQN 使用 $C = 10{,}000$。另一个替代是 **软 Polyak 更新**（soft Polyak update），以小的混合系数 $\tau$ 在每步应用：
+
+$$
+\theta^- \leftarrow \tau\,\theta + (1 - \tau)\,\theta^-.
+$$
+
+这让目标网络逐渐移向在线网络。硬拷贝是 DQN 的标准做法；软更新出现在第 3 章（Actor-Critic）的连续控制方法中。
+
+## 用 $\epsilon$ 调度进行探索
+
+DQN 用一个衰减的 $\epsilon$-贪婪行为策略收集数据。在训练早期 $\epsilon$ 很高，于是回放缓冲里填满多样的探索性转移。之后它衰减到一个小的下限，这样智能体主要利用学到的 Q 函数，同时仍收集一些新经验。
+
+衰减速率很重要：如果 $\epsilon$ 下降太快，在 Q 函数还不足以可靠地引导探索之前，缓冲就填满了近贪婪数据。如果下降太慢，训练全程都被随机动作主导。实践中线性衰减效果良好。合适的长度因环境而异：它至少应覆盖 Q 函数仍太不可靠、无法自行引导探索的那段时期。
+
+## 训练循环
+
+有了回放、目标网络和 $\epsilon$ 调度，完整的 DQN 算法在行动、存储和学习之间交替：
+
+```
+用相同的随机权重初始化 Q_theta 与 Q_theta_minus
+初始化回放缓冲 D
+
+对每个环境步：
+    用 epsilon-greedy(Q_theta(s)) 选择动作 a
+    执行环境，观察 r, s', done
+    把 (s, a, r, s', done) 存入 D
+
+    如果 |D| >= batch_size：
+        从 D 中均匀采样一个 minibatch
+        对终止转移：     y = r
+        对非终止转移：y = r + gamma * max_a' Q_theta_minus(s', a')
+        更新 theta 以最小化 (y - Q_theta(s, a))^2
+
+    每 C 步：把 theta 复制进 theta_minus
+```
+
+有几点值得注意。两个网络都以相同权重起步：目标不是一个独立的随机初始化，只是在线网络的一个冻结副本。只有当缓冲收集了足够多的转移后训练才开始；早期智能体只是行动和存储。对于终止转移，自举项被完全丢弃：片段已经结束，因此没有下一状态需要评估。每 $C$ 步的目标同步是目标网络移动的唯一时刻；在同步之间它完全冻结。
+
+## 示例：CartPole
+
+**CartPole-v1** 是深度基于值方法的标准健全性检查。状态是一个四维向量：小车位置、小车速度、杆的角度、杆的角速度；动作空间有两个选择：向左推或向右推。当杆倒过 12 度或小车 drift 出屏幕时片段结束。一个完美的片段持续 500 步并获得 500 的回报。
+
+<img
+  src="/docs-assets/01-value-based/dqn/cartpole-demo.gif"
+  alt="训练好的 DQN 智能体在 CartPole-v1 上平衡杆"
+  style={{ maxWidth: '70%', margin: '2rem auto', display: 'block' }}
+/>
+
+Q 网络是一个双隐藏层 MLP，把四维状态映射到两个 Q 值——每个动作一个：
+
+```python
+class QNetwork(nn.Module):
+    """双隐藏层 MLP：状态 -> 每个离散动作的 Q 值。"""
+
+    def __init__(self, state_dim: int, hidden_dim: int, n_actions: int) -> None:
+        super().__init__()
+        self.fc1 = nn.Linear(state_dim, hidden_dim)
+        self.fc2 = nn.Linear(hidden_dim, hidden_dim)
+        self.out = nn.Linear(hidden_dim, n_actions)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """前向传播：状态 -> 各动作的 Q 值。"""
+        x = F.relu(self.fc1(x))
+        x = F.relu(self.fc2(x))
+        return self.out(x)
+```
+
+单次前向传播产生两个动作的 Q 值，`argmax` 选出贪婪选择。损失函数是前面各节的 TD 误差平方，梯度只流经在线预测：
+
+```python
+def compute_td_loss(
+    q_net: QNetwork,
+    target_net: QNetwork,
+    states: torch.Tensor,
+    actions: torch.Tensor,
+    rewards: torch.Tensor,
+    next_states: torch.Tensor,
+    dones: torch.Tensor,
+    gamma: float,
+) -> torch.Tensor:
+    """单步 DQN 平方 TD 误差损失。"""
+    q_values = q_net(states).gather(1, actions.unsqueeze(1)).squeeze(1)
+    with torch.no_grad():
+        next_q = target_net(next_states).max(dim=1).values
+        targets = rewards + gamma * (1.0 - dones) * next_q
+    return F.mse_loss(q_values, targets)
+```
+
+`gather` 选出实际采取动作的 Q 值。目标块上的 `torch.no_grad()` 确保 $\theta^-$ 被当作常数：没有梯度流经目标。
+
+实验使用 600 个片段，隐藏维度 128，学习率 $2 \times 10^{-3}$，折扣 $\gamma = 0.99$，回放缓冲容量 10,000。缓冲有 500 个转移后开始训练。目标网络每 50 次梯度更新同步一次。$\epsilon$ 在前 5,000 个环境步中从 1.0 线性衰减到 0.05。
+
+## 完整代码
+
+包含回放缓冲、目标网络更新和 CartPole DQN 训练的完整可运行示例：
+[`dqn.py`](https://github.com/lubludrova/rl-handbook/blob/main/content/docs/01-value-based/dqn/dqn.py)
+
+你可能还会发现以下实现很有用：
+- [Yandex Practical RL：DQN 研讨](https://github.com/yandexdataschool/Practical_RL/blob/master/week04_approx_rl/seminar_pytorch.ipynb)
+- [Boyu AI：DQN](https://github.com/boyu-ai/Hands-on-RL/blob/main/第7章-DQN算法.ipynb)
+
+## 接下来是什么
+
+DQN 通过给神经 Q-learning 加上回放和目标网络，让深度基于值的 RL 得以工作。下一章研究仍然存在的失败模式：过高估计偏差、低效的均匀回放，以及标量价值目标。每个 DQN 改进都改变原始配方的一个部分。

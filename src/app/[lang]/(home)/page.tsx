@@ -1,9 +1,10 @@
 'use client';
 
 import Link from 'next/link';
-import { memo, useState } from 'react';
+import { memo, useState, use } from 'react';
 import { HeroCanvas } from '@/components/HeroCanvas';
 import { MapTransitionLink } from '@/components/MapTransitionLink';
+import { getLangFromPath, type UILang } from '@/lib/ui';
 
 const SectionTitle = memo(function SectionTitle({ children }: { children: React.ReactNode }) {
   return (
@@ -19,39 +20,53 @@ const SectionTitle = memo(function SectionTitle({ children }: { children: React.
   );
 });
 
-const CopyButton = memo(function CopyButton({ text }: { text: string }) {
-  const [copied, setCopied] = useState(false);
+type Lang = UILang;
 
-  function handleCopy() {
-    navigator.clipboard.writeText(text).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    });
-  }
+const texts: Record<Lang, {
+  heroTitle: string;
+  heroSubtitle: string;
+  cta: string;
+  abstractTitle: string;
+  abstractText: string;
+  chapterContentsTitle: string;
+  comingSoon: string;
+  authorTitle: string;
+  authorRole: string;
+  acknowledgementsTitle: string;
+  acknowledgementsText: string;
+  acknowledgementsSpecialThanks: string;
+}> = {
+  en: {
+    heroTitle: 'RL Handbook',
+    heroSubtitle: 'A comprehensive guide to Reinforcement Learning',
+    cta: 'Lock in',
+    abstractTitle: 'Abstract',
+    abstractText: 'This handbook gives a comprehensive, up-to-date guide to reinforcement learning and sequential decision making. Starting from bandits and Markov decision processes, it progresses through value-based methods, policy gradients, actor-critic architectures, and model-based approaches. Advanced topics include imitation learning, offline RL, curiosity-driven exploration, and multi-agent systems. The material balances mathematical rigor with runnable code examples, and is designed to serve as an open, continuously updated resource for students, researchers, and engineers entering or working in the field.',
+    chapterContentsTitle: 'Chapter Contents',
+    comingSoon: 'Coming soon',
+    authorTitle: 'Author',
+    authorRole: 'RL research @ Tsinghua University | ML & AI',
+    acknowledgementsTitle: 'Acknowledgements',
+    acknowledgementsText: 'Additionally, I thank all contributors who helped improve this handbook through feedback, corrections, and new material',
+    acknowledgementsSpecialThanks: 'I would like to thank Kyrie Cao who helped me directly with this project.',
+  },
+  zh: {
+    heroTitle: 'RL手册',
+    heroSubtitle: '强化学习综合指南',
+    cta: '开始阅读',
+    abstractTitle: '摘要',
+    abstractText: '本手册提供了一份关于强化学习和序列决策的全面、最新的指南。从赌博机和马尔可夫决策过程开始，逐步深入到基于值的方法、策略梯度、Actor-Critic 架构以及基于模型的方法。高级主题包括模仿学习、离线 RL、好奇心驱动的探索和多智能体系统。内容在数学严谨性和可运行的代码示例之间取得平衡，旨在为进入或从事该领域的学生、研究人员和工程师提供一个开放的、持续更新的资源。',
+    chapterContentsTitle: '章节目录',
+    comingSoon: '即将推出',
+    authorTitle: '作者',
+    authorRole: '清华大学 RL 研究 | ML & AI',
+    acknowledgementsTitle: '致谢',
+    acknowledgementsText: '此外，我感谢所有通过反馈、纠正和提供新素材来帮助改进本手册的贡献者：',
+    acknowledgementsSpecialThanks: '我要感谢曹坤鹏，他直接帮助了这个项目。',
+  },
+};
 
-  return (
-    <button
-      onClick={handleCopy}
-      className="copy-btn absolute top-3 right-3 px-3 py-1 text-xs font-heading rounded-sm cursor-pointer"
-      style={{
-        color: 'var(--color-fd-muted-foreground)',
-        border: '1px solid var(--color-fd-border)',
-      }}
-    >
-      {copied ? 'Copied!' : 'Copy'}
-    </button>
-  );
-});
-
-const bibtex = `@book{rlhandbook2026,
-  author = {Ruslan Ageev},
-  title = {RL Handbook: A Comprehensive Guide to Reinforcement Learning},
-  year = {2026},
-  publisher = {Online},
-  url = {https://rl-handbook.com}
-}`;
-
-const chapters: {
+const chaptersEn: {
   title: string;
   slug: string;
   pages: { title: string; slug: string }[];
@@ -123,7 +138,82 @@ const chapters: {
   },
 ];
 
-export default function HomePage() {
+const chaptersZh: typeof chaptersEn = [
+  {
+    title: '引言',
+    slug: '00-introduction',
+    pages: [
+      { title: '引言', slug: 'introduction' },
+      { title: '什么是强化学习？', slug: 'what-is-reinforcement-learning' },
+      { title: 'RL 方法分类', slug: 'taxonomy' },
+    ],
+  },
+  {
+    title: '基于值的方法',
+    slug: '01-value-based',
+    pages: [
+      { title: '多臂赌博机', slug: 'multi-armed-bandits' },
+      { title: '马尔可夫决策过程 (MDP)', slug: 'mdp' },
+      { title: '动态规划 (DP)', slug: 'dynamic-programming' },
+      { title: '蒙特卡洛 (MC) 与时序差分 (TD)', slug: 'monte-carlo-and-temporal-difference' },
+      { title: 'Sarsa 与 Q-Learning', slug: 'sarsa-and-q-learning' },
+      { title: '深度 Q 网络 (DQN)', slug: 'dqn' },
+      { title: 'DQN 改进', slug: 'dqn-improvements' },
+    ],
+  },
+  {
+    title: '同策略方法 (On-Policy)',
+    slug: '02-on-policy-policy-based',
+    pages: [
+      { title: '策略梯度与 REINFORCE 算法', slug: 'policy-gradient-and-reinforce' },
+      { title: '演员-评论家系列方法 (Actor-Critic、A2C 与 A3C)', slug: 'actor-critic-a2c-a3c' },
+      { title: 'TRPO', slug: 'trpo' },
+      { title: 'PPO', slug: 'ppo' },
+    ],
+  },
+  {
+    title: '异策略方法 (Off-Policy)',
+    slug: '03-off-policy-policy-based',
+    pages: [
+      { title: 'Off-Policy 异策略改进框架', slug: 'off-policy-policy-improvement-framework' },
+      { title: 'DDPG', slug: 'ddpg' },
+      { title: 'TD3 与 SAC', slug: 'td3-and-sac' },
+    ],
+  },
+  {
+    title: '基于模型的方法',
+    slug: '04-model-based',
+    comingSoon: true,
+    pages: [
+      { title: 'Dyna 与学习模型', slug: 'dyna-and-learned-models' },
+      { title: '模型预测控制 (MPC)', slug: 'model-predictive-control' },
+      { title: 'AlphaZero 与 MuZero', slug: 'alphazero-and-muzero' },
+    ],
+  },
+  {
+    title: '高级主题',
+    slug: '05-advanced-topics',
+    comingSoon: true,
+    pages: [
+      { title: 'RLHF 与语言模型', slug: 'rl-sequence-generation-and-rlhf' },
+      { title: '模仿学习 (IL)', slug: 'imitation-learning' },
+      { title: '离线 RL', slug: 'offline-rl' },
+      { title: '探索', slug: 'exploration' },
+      { title: '目标条件 RL', slug: 'goal-conditioned-rl' },
+      { title: '多智能体 RL', slug: 'multi-agent-rl' },
+    ],
+  },
+];
+
+export default function HomePage({ params: paramsPromise }: { params: Promise<{ lang: string }> }) {
+  const params = use(paramsPromise);
+  const lang = getLangFromPath('/' + params.lang) as Lang;
+  const t = texts[lang];
+  const chapters = lang === 'zh' ? chaptersZh : chaptersEn;
+  // Default language (en) has no prefix in the URL; every other language is
+  // prefixed with its language code (`/zh`, `/ru`, …).
+  const prefix = lang === 'en' ? '' : `/${lang}`;
+
   return (
     <main className="landing-page">
       {/* ===== HERO ===== */}
@@ -141,7 +231,7 @@ export default function HomePage() {
               color: 'var(--color-fd-foreground)',
             }}
           >
-            RL Handbook
+            {t.heroTitle}
           </h1>
 
           <p
@@ -152,12 +242,12 @@ export default function HomePage() {
               color: 'var(--color-fd-muted-foreground)',
             }}
           >
-            A comprehensive guide to Reinforcement Learning
+            {t.heroSubtitle}
           </p>
 
           <div className="mt-8">
             <Link
-              href="/docs/00-introduction/introduction"
+              href={`${prefix}/docs/00-introduction/introduction`}
               prefetch={true}
               className="cta-btn inline-block font-heading font-semibold text-sm uppercase rounded-none px-8 py-3 min-h-[44px] leading-[44px]"
               aria-label="Open RL Handbook documentation"
@@ -167,7 +257,7 @@ export default function HomePage() {
                 color: 'var(--color-fd-primary-foreground)',
               }}
             >
-              Lock in
+              {t.cta}
             </Link>
           </div>
 
@@ -181,7 +271,7 @@ export default function HomePage() {
       <section className="py-10 sm:py-24 px-4 sm:px-6">
         <div style={{ maxWidth: 700, margin: '0 auto' }}>
 
-          <SectionTitle>Abstract</SectionTitle>
+          <SectionTitle>{t.abstractTitle}</SectionTitle>
           <p
             className="font-body"
             style={{
@@ -191,16 +281,7 @@ export default function HomePage() {
               textWrap: 'pretty',
             }}
           >
-            This handbook gives a comprehensive, up-to-date guide to
-            reinforcement learning and sequential decision making. Starting from
-            bandits and Markov decision processes, it progresses through
-            value-based methods, policy gradients, actor-critic architectures,
-            and model-based approaches. Advanced topics include imitation
-            learning, offline RL, curiosity-driven exploration, and multi-agent
-            systems. The material balances mathematical rigor with runnable code
-            examples, and is designed to serve as an open, continuously updated
-            resource for students, researchers, and engineers entering or working
-            in the field
+            {t.abstractText}
           </p>
         </div>
       </section>
@@ -209,7 +290,7 @@ export default function HomePage() {
       <section className="py-10 sm:py-24 px-4 sm:px-6">
         <div style={{ maxWidth: 700, margin: '0 auto' }}>
 
-          <SectionTitle>Chapter Contents</SectionTitle>
+          <SectionTitle>{t.chapterContentsTitle}</SectionTitle>
 
           <ol className="mt-10 space-y-10" style={{ listStyle: 'none', padding: 0 }}>
             {chapters.map((chapter, chapterIdx) => {
@@ -248,7 +329,7 @@ export default function HomePage() {
                           border: '1px solid var(--color-fd-border)',
                         }}
                       >
-                        Coming soon
+                        {t.comingSoon}
                       </span>
                     )}
                   </div>
@@ -277,7 +358,7 @@ export default function HomePage() {
                             {chapterNum}.{pageIdx + 1}
                           </span>
                           <Link
-                            href={`/docs/${chapter.slug}/${page.slug}`}
+                            href={`${prefix}/docs/${chapter.slug}/${page.slug}`}
                             prefetch={false}
                             className="font-body icon-link underline-offset-2 hover:underline"
                             style={{
@@ -299,38 +380,11 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* ===== CITATION (hidden) =====
-      <section className="py-10 sm:py-24 px-4 sm:px-6">
-        <div style={{ maxWidth: 700, margin: '0 auto' }}>
-
-          <SectionTitle>Citation</SectionTitle>
-
-          <div
-            className="relative rounded-sm p-6"
-            style={{
-              fontSize: '0.875rem',
-              background: 'var(--color-fd-popover)',
-              border: '1px solid var(--color-fd-border)',
-              borderLeft: '3px solid var(--color-fd-border)',
-            }}
-          >
-            <CopyButton text={bibtex} />
-            <pre
-              className="font-code leading-relaxed whitespace-pre-wrap"
-              style={{ color: 'var(--color-fd-foreground)' }}
-            >
-              {bibtex}
-            </pre>
-          </div>
-        </div>
-      </section>
-      */}
-
       {/* ===== AUTHOR ===== */}
       <section className="py-10 sm:py-24 px-4 sm:px-6">
         <div style={{ maxWidth: 700, margin: '0 auto' }}>
 
-          <SectionTitle>Author</SectionTitle>
+          <SectionTitle>{t.authorTitle}</SectionTitle>
 
           <div>
             <p
@@ -346,7 +400,7 @@ export default function HomePage() {
               className="font-body text-sm mt-1"
               style={{ color: 'var(--color-fd-muted-foreground)' }}
             >
-              RL research @ Tsinghua University | ML &amp; AI
+              {t.authorRole}
             </p>
             <div className="flex items-center flex-wrap gap-x-4 gap-y-2 mt-3">
               {[
@@ -378,7 +432,7 @@ export default function HomePage() {
       <section className="py-10 sm:py-24 px-4 sm:px-6">
         <div style={{ maxWidth: 700, margin: '0 auto' }}>
 
-          <SectionTitle>Acknowledgements</SectionTitle>
+          <SectionTitle>{t.acknowledgementsTitle}</SectionTitle>
           <p
             className="font-body"
             style={{
@@ -388,7 +442,18 @@ export default function HomePage() {
               textWrap: 'pretty',
             }}
           >
-            We thank all{' '}
+            {t.acknowledgementsSpecialThanks}
+          </p>
+          <p
+            className="font-body mt-4"
+            style={{
+              fontSize: '1.05rem',
+              lineHeight: 1.8,
+              color: 'var(--color-fd-foreground)',
+              textWrap: 'pretty',
+            }}
+          >
+            {t.acknowledgementsText}{' '}
             <a
               href="https://github.com/lubludrova/rl-handbook/graphs/contributors"
               target="_blank"
@@ -397,9 +462,8 @@ export default function HomePage() {
               style={{ color: 'var(--color-fd-foreground)' }}
             >
               contributors
-            </a>{' '}
-            who helped improve this handbook through feedback, corrections, and
-            new material
+            </a>
+            .
           </p>
         </div>
       </section>

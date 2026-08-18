@@ -1,0 +1,139 @@
+---
+title: 什么是强化学习？
+description: "RL 范式概述：智能体、环境、奖励与学习循环。"
+---
+
+> **摘要。** 大多数机器学习系统从固定数据集中学习，但真正的决策是在时间中展开的——每一次选择都会影响下一次观察。强化学习对此进行了形式化：智能体在环境中行动，收集标量奖励，并学习最大化其累积总和。本章建立了后续所有章节所需的基础词汇（智能体-环境循环、马尔可夫决策过程、回报和策略）。
+
+机器学习，广义上，是关于从数据中学习。监督学习接受带标签的样本并拟合一个函数。无监督学习在无标签数据中寻找结构。两者都假设数据已经存在，是静态的、可以被处理。
+
+强化学习打破了这一假设。数据来自于**交互**：智能体的选择决定了它接下来观察到什么。这一单一变化引入了监督学习从未面临过的挑战，也使 RL 成为今天的模样。
+
+## 一种不同的学习方式
+
+想象训练一个机器人手臂来堆叠积木。一种方法是：收集人类的示范，标注每个关节位置，训练一个回归模型。这在狭窄的设置中有效，但当积木处于意外位置或手臂从不同配置开始时就会失败。标签"正确的关节角度"取决于机器人自身当前的状态，而这又取决于之前的每一个动作。
+
+强化学习以不同的方式处理这个问题。手臂尝试堆叠积木。它掉落了。它收到一个低奖励。经过数千次尝试，它调整了自己的行为。不需要标注的示范：只需要一种衡量事情是否进展顺利的方法（奖励信号）和一个基于该测量进行改进的算法。
+
+这里出现了一个监督学习中不存在的问题：**探索与利用的权衡**。为了积累奖励，智能体必须偏好那些它已经尝试过并发现有效的动作。但为了发现这样的动作，它首先必须尝试从未选择过的动作。它必须**利用**已知信息来获取奖励，也必须**探索**以改进未来的选择。过度利用，智能体会陷入局部最优——手臂满足于第一个可接受的抓取方式，永远无法发现更平滑的动作。过度探索，它永远无法精炼有效的策略——每次尝试都是一个全新的猜测。在随机任务上，每个动作必须被尝试多次，才能可靠地估计其期望奖励。这一困境已经被研究了数十年且尚未解决；但明确的是，它在监督学习中不会出现，因为数据是预先固定的。
+
+强化学习的另一个定义性特征是，它考虑的是一个目标导向的智能体与不确定环境交互的完整问题，而不是切割出一个孤立的子问题。监督学习问一个干净的问题——给定输入，预测输出——但不指定预测将如何被使用。经典规划问另一个——给定模型，找到最佳动作序列——但不问模型从何而来，或智能体应该如何实时行动。RL 拒绝这种分解。智能体有明确的目标，感知环境的各个方面，并对其施加影响；学习、规划和决策是交织在一起的，而非彼此分离。子问题仍然需要被隔离和研究，但每个子问题都必须在智能体**行动**（而不仅仅是预测）的完整图景中扮演一个可识别的角色。
+
+## RL 系统的要素
+
+一个 RL 系统有两个组成部分：做出决策的**智能体**和对其做出响应的**环境**。它们在一个循环中交互。
+
+在每个离散时间步 $t$：
+
+1. 环境呈现一个**状态** $s_t \in \mathcal{S}$。
+2. 智能体选择一个**动作** $a_t \in \mathcal{A}$。
+3. 环境转移到新状态 $s_{t+1}$ 并发出一个标量**奖励** $R_{t+1}$。（在某些工作中，相同的奖励被记为 $R_t$，与产生它的动作 $a_t$ 对齐。）
+4. 智能体观察 $R_{t+1}$ 和 $s_{t+1}$，循环重复。
+
+循环持续进行，直到达到**终止状态**（结束一个**回合**）或无限期进行（**持续性任务**）。
+
+该循环产生的完整序列 $s_0, a_0, R_1, s_1, a_1, R_2, \ldots$ 被称为**轨迹**。轨迹是 RL 中数据的基本单元：监督学习在固定的标注样本集上训练，而 RL 在智能体通过行动产生的轨迹上训练。
+
+除了智能体和环境本身，一个 RL 系统有四个主要要素：
+
+- **奖励信号。** 环境在每个步骤发送给智能体的数字。它定义了目标：智能体的目标是最大化期望累积奖励，这是智能体收到的唯一反馈。奖励由环境设定，不由智能体选择。
+
+- **策略。** 智能体的决策规则，将情境映射到动作。策略是智能体实际做的事情；其他一切都只是为了找到一个好的策略。它可以是确定性的（"在这个状态下总是向右走"）或随机的（"以 0.7 的概率向右走"）。它可以用查找表或简单函数表示（对于小问题），或在现代 RL 中用神经网络表示。
+
+- **价值函数。** 对给定状态或状态-动作对的期望回报的估计，即智能体在未来可以期望累积的总奖励量。奖励信号说的是什么**现在**是好的，而价值函数说的是什么**从长远来看**是好的。一个即时奖励为零的状态仍可能有高价值，因为它通向产生高奖励的状态。本手册中的大多数算法都围绕准确估计价值函数来组织，因为一旦可以预测长期奖励，选择动作就简化为选择价值最高的那一个。
+
+- **模型。** 环境的一个可选的内部描述：给定状态和动作，接下来是什么状态和奖励。学习和使用这些信息的方法称为**基于模型的**方法；直接从经验中工作的方法称为**无模型的**方法。基于模型的方法可以在行动前通过模拟可能的未来来规划，无模型的方法则完全跳过模型，直接从经验中学习。
+
+奖励 $R_{t+1}$ 是唯一的反馈信号。没有标签，没有纠正，没有解释。每一步，一个数字。智能体的工作就是最大化它随时间收集的总奖励。
+
+## 回报与折扣
+
+然而，上述陈述需要两个改进。
+
+首先，环境是随机的。即使采用固定策略，相同的起始情境也可能展开成完全不同的轨迹——机器人关节的一次打滑、游戏中的一次掷骰子、一次嘈杂的传感器读数。因此，单条轨迹上的总奖励是一个随机变量，智能体不能直接最大化它；它只能最大化其策略所诱导的轨迹上的**期望值**。
+
+其次，"总奖励"必须对近期和远期奖励进行不同的加权。把十步后才到达的奖励当作与现在一样的奖励来对待，在实践中是错误的（延迟的回报通常应该计数更少），在数学上也不方便（对于永不结束的任务，总和可能不收敛）。
+
+让我们将**回报** $G_t$ 定义为每个 RL 算法优化的量（总奖励），它是从时间步 $t$ 开始所有未来奖励的折扣和：
+$$
+G_t = R_{t+1} + \gamma R_{t+2} + \gamma^2 R_{t+3} + \cdots = \sum_{k=0}^{\infty} \gamma^k R_{t+k+1}
+$$
+
+通俗地说：近期的奖励比远期的奖励更重要。标量 $\gamma \in [0, 1)$ 是**折扣因子**：智能体对未来进行折扣的陡峭程度。要求 $\gamma < 1$ 保证总和收敛：几何级数 $\sum_{k=0}^{\infty} \gamma^k = 1/(1-\gamma)$ 对于任何 $\gamma < 1$ 都是有限的，因此即使任务永不结束，$G_t$ 也保持有界。许多实际算法将 $\gamma$ 设置得接近 1，以便智能体能很好地规划未来。
+
+这背后是**奖励假设**：所有目标都可以表达为期望累积标量奖励的最大化。这是否总是正确，是该领域仍在探索的问题。
+
+这些定义是抽象的。一个具体的例子会让它们更容易理解。
+
+## 示例：小网格世界
+
+**小网格世界**是一个 4×4 的网格，有 16 个单元格。两个带阴影的角是**终止状态**：到达任何一个都会结束回合。从非终止单元格的每一步产生 $-1$ 的奖励。这是一个无折扣的回合制任务：$\gamma = 1$
+
+<svg width="640" height="248" viewBox="0 0 640 248" xmlns="http://www.w3.org/2000/svg" style={{display:'block',margin:'1.5rem auto'}}>
+  <defs>
+    <marker id="arrowhead" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#0A0A0A"/>
+    </marker>
+  </defs>
+  <line x1="72" y1="124" x2="72" y2="86" stroke="#0A0A0A" strokeWidth="1.5" markerEnd="url(#arrowhead)"/>
+  <line x1="72" y1="124" x2="72" y2="162" stroke="#0A0A0A" strokeWidth="1.5" markerEnd="url(#arrowhead)"/>
+  <line x1="72" y1="124" x2="34" y2="124" stroke="#0A0A0A" strokeWidth="1.5" markerEnd="url(#arrowhead)"/>
+  <line x1="72" y1="124" x2="110" y2="124" stroke="#0A0A0A" strokeWidth="1.5" markerEnd="url(#arrowhead)"/>
+  <text x="72" y="196" textAnchor="middle" fontSize="11" fontFamily="var(--font-code)" fill="#555555">动作</text>
+  <rect x="160" y="12" width="56" height="56" fill="#F1F3F5" stroke="#D1D5DB" strokeWidth="1.5"/>
+  <rect x="216" y="12" width="56" height="56" fill="white" stroke="#D1D5DB" strokeWidth="1.5"/>
+  <rect x="272" y="12" width="56" height="56" fill="white" stroke="#D1D5DB" strokeWidth="1.5"/>
+  <rect x="328" y="12" width="56" height="56" fill="white" stroke="#D1D5DB" strokeWidth="1.5"/>
+  <rect x="160" y="68" width="56" height="56" fill="white" stroke="#D1D5DB" strokeWidth="1.5"/>
+  <rect x="216" y="68" width="56" height="56" fill="white" stroke="#D1D5DB" strokeWidth="1.5"/>
+  <rect x="272" y="68" width="56" height="56" fill="white" stroke="#D1D5DB" strokeWidth="1.5"/>
+  <rect x="328" y="68" width="56" height="56" fill="white" stroke="#D1D5DB" strokeWidth="1.5"/>
+  <rect x="160" y="124" width="56" height="56" fill="white" stroke="#D1D5DB" strokeWidth="1.5"/>
+  <rect x="216" y="124" width="56" height="56" fill="white" stroke="#D1D5DB" strokeWidth="1.5"/>
+  <rect x="272" y="124" width="56" height="56" fill="white" stroke="#D1D5DB" strokeWidth="1.5"/>
+  <rect x="328" y="124" width="56" height="56" fill="white" stroke="#D1D5DB" strokeWidth="1.5"/>
+  <rect x="160" y="180" width="56" height="56" fill="white" stroke="#D1D5DB" strokeWidth="1.5"/>
+  <rect x="216" y="180" width="56" height="56" fill="white" stroke="#D1D5DB" strokeWidth="1.5"/>
+  <rect x="272" y="180" width="56" height="56" fill="white" stroke="#D1D5DB" strokeWidth="1.5"/>
+  <rect x="328" y="180" width="56" height="56" fill="#F1F3F5" stroke="#D1D5DB" strokeWidth="1.5"/>
+  <text x="244" y="45" textAnchor="middle" fontSize="13" fontFamily="var(--font-code)" fill="#333333">1</text>
+  <text x="300" y="45" textAnchor="middle" fontSize="13" fontFamily="var(--font-code)" fill="#333333">2</text>
+  <text x="356" y="45" textAnchor="middle" fontSize="13" fontFamily="var(--font-code)" fill="#333333">3</text>
+  <text x="188" y="101" textAnchor="middle" fontSize="13" fontFamily="var(--font-code)" fill="#333333">4</text>
+  <text x="244" y="101" textAnchor="middle" fontSize="13" fontFamily="var(--font-code)" fill="#333333">5</text>
+  <text x="300" y="101" textAnchor="middle" fontSize="13" fontFamily="var(--font-code)" fill="#333333">6</text>
+  <text x="356" y="101" textAnchor="middle" fontSize="13" fontFamily="var(--font-code)" fill="#333333">7</text>
+  <text x="188" y="157" textAnchor="middle" fontSize="13" fontFamily="var(--font-code)" fill="#333333">8</text>
+  <text x="244" y="157" textAnchor="middle" fontSize="13" fontFamily="var(--font-code)" fill="#333333">9</text>
+  <text x="300" y="157" textAnchor="middle" fontSize="13" fontFamily="var(--font-code)" fill="#333333">10</text>
+  <text x="356" y="157" textAnchor="middle" fontSize="13" fontFamily="var(--font-code)" fill="#333333">11</text>
+  <text x="188" y="213" textAnchor="middle" fontSize="13" fontFamily="var(--font-code)" fill="#333333">12</text>
+  <text x="244" y="213" textAnchor="middle" fontSize="13" fontFamily="var(--font-code)" fill="#333333">13</text>
+  <text x="300" y="213" textAnchor="middle" fontSize="13" fontFamily="var(--font-code)" fill="#333333">14</text>
+  <text x="528" y="112" textAnchor="middle" fontSize="14" fontFamily="var(--font-code)" fill="#0A0A0A">
+    <tspan>R</tspan><tspan dy="4" fontSize="10">t</tspan><tspan dy="-4"> = −1</tspan>
+  </text>
+  <text x="528" y="134" textAnchor="middle" fontSize="11" fontFamily="var(--font-code)" fill="#555555">所有转移上</text>
+</svg>
+
+非终止状态为 $\mathcal{S} = \{1, 2, \ldots, 14\}$。动作集为 $\mathcal{A} = \{\text{上}, \text{下}, \text{右}, \text{左}\}$。转移是确定性的：每个动作将智能体移动到该方向的相邻单元格。会将智能体带出网格的动作使其留在原地：从状态 5 向右移动到达状态 6，但从状态 3（右边缘）向右移动使智能体保持在状态 3。
+
+我们之前讨论的循环中的每个概念都直接映射到这个例子：
+
+- **状态**：14 个非终止单元格之一（$\mathcal{S} = \{1, \ldots, 14\}$）加上两个终止状态。
+- **动作**：四个方向之一（$\mathcal{A} = \{\text{上}, \text{下}, \text{右}, \text{左}\}$）。
+- **奖励**：在每次非终止转移上 $R_t = -1$。
+- **回合**：到达终止单元格前的一系列移动。
+- **回报**：$G_0 = -k$，其中 $k$ 是步数。更短的路径产生更高的回报。
+
+智能体没有地图。在随机策略下（每个动作等概率），它会漫游并在每一步累积 $-1$。智能体必须学习如何积累最大总奖励，因此如何在到达终止状态之前走最少的步数。一个好的算法能学习从任何单元格到最近终止状态的最短路径。
+
+## 智能体在寻找什么
+
+我们刚刚描述的——状态、动作、转移、每步奖励以及未来奖励的折扣——有一个正式的名称：**马尔可夫决策过程**（MDP）。它所做的一个定义性假设是**马尔可夫性质**：下一个状态和奖励只依赖于当前状态和动作，而不依赖于智能体是如何到达那里的。在网格世界中，当前单元格就是全部所需信息；到达它的路径无关紧要。
+
+这是一个理想化。机器人手臂除了位置还需要速度，抛出的球的一张单独照片无法告诉你它是正在上升还是下降。在实践中，"状态"通常包含近期历史——例如将多个过去的观察打包在一起——以使马尔可夫性质近似成立。MDP 的完整数学构建——动力学、价值函数、贝尔曼方程——是 [MDP 章节](/docs/01-value-based/mdp) 的主题。
+
+MDP 的解是一个**策略** $\pi$：一个告诉智能体在每个状态下采取什么动作的规则。随机策略 $\pi(a \mid s)$ 为每个动作分配一个概率；确定性策略 $\pi(s)$ 将每个状态映射到单个动作。并非所有策略都是等价的。**最优策略** $\pi^*$ 是从每个状态最大化期望回报的策略。如上所述，找到 $\pi^*$ 是每个 RL 算法的目标。智能体通常从一个随机或任意的策略开始，并通过经验来改进它。
+
+关键在于：智能体事先不知道环境的转移或奖励函数。它不能解析地计算 $\pi^*$。它只能行动，观察后果，并调整。不同的算法族以不同的方式回答这一约束——有些估计动作的价值，有些直接优化策略参数，有些构建环境的模型。下一章将映射这些族及其之间的权衡。

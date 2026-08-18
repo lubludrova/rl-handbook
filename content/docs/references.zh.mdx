@@ -1,0 +1,105 @@
+---
+title: 参考文献
+description: 编写本手册时使用的书籍、论文、课程、笔记与代码资源。
+---
+
+本页汇集了编写与核对各章内容时所参考的材料。其中不乏优质资源，能帮助你把强化学习学得更扎实。
+
+## 书籍
+
+- **Sutton & Barto (2018).** [Richard S. Sutton 与 Andrew G. Barto 著，*Reinforcement Learning: An Introduction*（强化学习导论），第 2 版，MIT Press。](https://mitpress.mit.edu/9780262039246/reinforcement-learning/)  
+  强化学习的奠基性教材，也是本手册在符号记法、示例以及核心基础算法处理上的主要参考。
+
+## 课程、笔记与代码
+
+- **VachanVY.** [Reinforcement-Learning](https://github.com/VachanVY/Reinforcement-Learning#policy-iteration)  
+  非常扎实的实现资源，对基础算法覆盖良好：策略迭代、值迭代、蒙特卡洛、SARSA、Q-learning、PPO、DDPG 与 SAC。适合用小型可运行代码核对算法机制。
+
+- **Yandex Data School.** [Practical RL](https://github.com/yandexdataschool/Practical_RL)  
+  一门开放的强化学习课程，包含讲座、研讨 notebook、作业式材料，以及覆盖经典与深度强化学习的 Colab 友好型实践练习。
+
+- **Tim Miller.** [Mastering Reinforcement Learning: Markov Decision Processes](https://gibberblot.github.io/rl-notes/single-agent/MDPs.html)  
+  关于 MDP、策略、贝尔曼方程、策略提取以及部分可观测 MDP 的清晰在线笔记，可作为基础部分的第二种讲解。
+
+- **Boyu AI.** [Hands-on Reinforcement Learning](https://hrl.boyuai.com/)  
+  实践课风格的资源，包含章节文本、幻灯片、视频与可运行 notebook 链接，从表格型强化学习一路讲到深度强化学习及若干进阶主题。
+
+- **OpenAI Spinning Up.** [Spinning Up in Deep RL](https://spinningup.openai.com/en/latest/)  
+  紧凑的深度强化学习参考，包含导论、关键论文、伪代码，以及策略梯度、TRPO、PPO、DDPG、TD3、SAC 的实现说明。
+
+- **AdithyaSK.** [The ultimate guide to RL environments: building and scaling them in the LLM era](https://huggingface.co/spaces/AdithyaSK/rl-environments-guide#introduction)  
+  理解强化学习环境的优质资源：如何设计、扩展、评估它们，以及在当下面向大语言模型的强化学习设定中如何思考环境。
+
+## 论文
+
+- **Thompson (1933).** [*On the Likelihood that One Unknown Probability Exceeds Another in View of the Evidence of Two Samples*（基于两组样本证据推断一个未知概率大于另一个似然）。](https://doi.org/10.1093/biomet/25.3-4.285)  
+  提出 Thompson 采样：从臂价值的后验中采样，再在该样本下贪心地行动。用于多臂赌博机一章。
+
+- **Sutton (1988).** [*Learning to Predict by the Methods of Temporal Differences*（用时序差分方法学习预测）。](https://doi.org/10.1007/BF00115009)  
+  提出时序差分学习：从采样转移中更新预测，同时借助当前估计进行引导（bootstrapping）。用于蒙特卡洛与时序差分预测一章。
+
+- **Watkins and Dayan (1992).** [*Q-learning*（Q 学习）。](https://doi.org/10.1007/BF00992698)  
+  提出 Q-learning：以贪心的下一状态引导目标进行异策略时序差分控制。用于 Sarsa 与 Q 学习一章。
+
+- **Auer et al. (2002).** [*Finite-time Analysis of the Multiarmed Bandit Problem*（多臂赌博机问题的有限时间分析）。](https://doi.org/10.1023/A:1013689704352)  
+  提出 UCB1：在不确定性下保持乐观，对探索不足的臂给予随置信度收缩的奖励加成。用于多臂赌博机一章。
+
+- **Lin (1992).** [*Self-Improving Reactive Agents Based on Reinforcement Learning, Planning and Teaching*（基于强化学习、规划与教学的自我改进反应式智能体）。](https://doi.org/10.1007/BF00992699)  
+  提出经验回放：存储过去的转移并用复用的样本进行训练。用于深度 Q 网络一章。
+
+- **Mnih et al. (2013).** [*Playing Atari with Deep Reinforcement Learning*（用深度强化学习玩 Atari）。](https://arxiv.org/abs/1312.5602)  
+  提出 DQN：用 CNN 与回放缓冲区从 Atari 像素中学习深度 Q 学习。用于深度 Q 网络一章。
+
+- **Mnih et al. (2015).** [*Human-level control through deep reinforcement learning*（通过深度强化学习达到人类水平控制）。](https://doi.org/10.1038/nature14236)  
+  提出标准的 DQN 方案：回放、目标网络，以及大规模的 Atari 评测。用于深度 Q 网络一章。
+
+- **van Hasselt et al. (2016).** [*Deep Reinforcement Learning with Double Q-learning*（结合双重 Q 学习的深度强化学习）。](https://arxiv.org/abs/1509.06461)  
+  提出 Double DQN：将动作选择与动作评估分离，以降低最大化的偏差。用于 DQN 改进一章。
+
+- **Wang et al. (2016).** [*Dueling Network Architectures for Deep Reinforcement Learning*（用于深度强化学习的竞争式网络结构）。](https://arxiv.org/abs/1511.06581)  
+  提出 Dueling DQN：将 Q 网络拆分为价值流与优势流。用于 DQN 改进一章。
+
+- **Schaul et al. (2016).** [*Prioritized Experience Replay*（优先经验回放）。](https://arxiv.org/abs/1511.05952)  
+  提出优先经验回放：更频繁地采样高误差转移，并用重要性权重修正偏差。用于 DQN 改进一章。
+
+- **Bellemare et al. (2017).** [*A Distributional Perspective on Reinforcement Learning*（从分布视角看强化学习）。](https://arxiv.org/abs/1707.06887)  
+  提出 C51：学习回报的分类分布，而非仅学习期望回报。用于 DQN 改进一章。
+
+- **Fortunato et al. (2017).** [*Noisy Networks for Exploration*（用于探索的噪声网络）。](https://arxiv.org/abs/1706.10295)  
+  提出 Noisy Nets：在深度强化学习网络内部用可学习的参数噪声来进行探索。用于 DQN 改进一章。
+
+- **Hessel et al. (2018).** [*Rainbow: Combining Improvements in Deep Reinforcement Learning*（Rainbow：组合深度强化学习中的各项改进）。](https://arxiv.org/abs/1710.02298)  
+  提出 Rainbow：将 Double DQN、PER、竞争网络、多步目标、C51 与 Noisy Nets 组合成单一 DQN 智能体。用于 DQN 改进一章。
+
+- **Williams (1992).** [*Simple Statistical Gradient-Following Algorithms for Connectionist Reinforcement Learning*（用于连接主义强化学习的简单统计梯度跟随算法）。](https://doi.org/10.1007/BF00992696)  
+  提出 REINFORCE：一种用于直接策略优化的蒙特卡洛似然比估计器。用于策略梯度与 REINFORCE 一章。
+
+- **Sutton et al. (1999).** [*Policy Gradient Methods for Reinforcement Learning with Function Approximation*（带函数近似的强化学习策略梯度方法）。](https://papers.nips.cc/paper/1713-policy-gradient-methods-for-reinforcement-learning-with-function-approximation)  
+  提出策略梯度定理：基于梯度的函数近似策略优化的基石。用于策略梯度与 REINFORCE 一章。
+
+- **Schulman et al. (2015).** [*Trust Region Policy Optimization*（信任区域策略优化）。](https://arxiv.org/abs/1502.05477)  
+  提出 TRPO：在以 KL 散度约束策略变化的前提下，优化局部策略代理目标。用于 TRPO 一章。
+
+- **Schulman et al. (2016).** [*High-Dimensional Continuous Control Using Generalized Advantage Estimation*（使用广义优势估计的高维连续控制）。](https://arxiv.org/abs/1506.02438)  
+  提出 GAE：一种指数加权的优势估计器，在偏差与方差之间做权衡。用于 TRPO 与 PPO 一章。
+
+- **Mnih et al. (2016).** [*Asynchronous Methods for Deep Reinforcement Learning*（深度强化学习的异步方法）。](https://arxiv.org/abs/1602.01783)  
+  提出 A3C：使用大量并行环境工作线程的异步 Actor-Critic 训练。用于 Actor-Critic、A2C 与 A3C 一章。
+
+- **Schulman et al. (2017).** [*Proximal Policy Optimization Algorithms*（近端策略优化算法）。](https://arxiv.org/abs/1707.06347)  
+  提出 PPO：一种裁剪的一阶策略更新，近似 TRPO 的局部更新思想。用于 PPO 一章。
+
+- **Silver et al. (2014).** [*Deterministic Policy Gradient Algorithms*（确定性策略梯度算法）。](https://proceedings.mlr.press/v32/silver14.html)  
+  提出确定性策略梯度：通过可微分的 Q 评论家训练连续 actor。用于 DDPG 一章。
+
+- **Lillicrap et al. (2016).** [*Continuous control with deep reinforcement learning*（用深度强化学习做连续控制）。](https://arxiv.org/abs/1509.02971)  
+  提出 DDPG：面向连续动作的确定性 actor、Q 评论家、回放缓冲区与目标网络。用于 DDPG 一章。
+
+- **Fujimoto et al. (2018).** [*Addressing Function Approximation Error in Actor-Critic Methods*（解决 Actor-Critic 方法中的函数近似误差）。](https://arxiv.org/abs/1802.09477)  
+  提出 TD3：裁剪的双重评论家、延迟的 actor 更新与目标策略平滑，使 DDPG 模板更稳健。用于 TD3 与 SAC 一章。
+
+- **Haarnoja et al. (2018).** [*Soft Actor-Critic: Off-Policy Maximum Entropy Deep Reinforcement Learning with a Stochastic Actor*（软 Actor-Critic：带随机 Actor 的异策略最大熵深度强化学习）。](https://arxiv.org/abs/1801.01290)  
+  提出 SAC：在最大熵目标下的异策略随机 Actor-Critic。用于 TD3 与 SAC 一章。
+
+- **Haarnoja et al. (2018).** [*Soft Actor-Critic Algorithms and Applications*（软 Actor-Critic 算法与应用）。](https://arxiv.org/abs/1812.05905)  
+  提出现代 SAC 变体：自动熵温度调节，以及实践中使用的孪生 Q 实现。用于 TD3 与 SAC 一章。

@@ -582,3 +582,215 @@ export const edges: MapEdge[] = [
   { from: 'alphazero', to: 'muzero' },
 ];
 
+// ===========================================================================
+// Localization
+// ---------------------------------------------------------------------------
+// The primary data above is English. These per-entity overrides provide the
+// Chinese labels/blurbs; `localize(lang)` merges them into a fully-localized
+// snapshot. Adding a new language means adding another override table and a
+// branch in `localize`.
+// ===========================================================================
+
+import type { UILang } from '@/lib/ui';
+
+const nodeZh: Record<string, { label?: string; blurb?: string }> = {
+  bandits: {
+    label: 'Bandits',
+    blurb:
+      '一个状态、多只手臂：探索–利用困境最纯粹的形式，也是本手册的起点。',
+  },
+  mdp: {
+    label: 'MDP',
+    blurb:
+      '状态、动作、奖励、转移：所有强化学习算法所处的形式化框架，也是图谱的中心。',
+  },
+  dp: {
+    label: 'DP',
+    blurb:
+      '在已知模型下进行精确规划。策略迭代和值迭代引入贝尔曼备份，其后的所有方法都对其近似。',
+  },
+  'mc-td': {
+    label: 'MC & TD',
+    blurb:
+      '去掉模型：从采样经验中估计价值。蒙特卡洛等待完整回报；时序差分从单步进行引导。',
+  },
+  sarsa: {
+    label: 'Sarsa',
+    blurb:
+      '同策略单步 TD 控制：从实际采样的下一个动作进行引导，因此学到的价值包含探索代价。',
+  },
+  'q-learning': {
+    label: 'Q-Learning',
+    blurb:
+      '异策略单步 TD 控制：从贪婪的下一动作引导，而行为策略仍可保持探索性。',
+  },
+  dqn: {
+    label: 'DQN',
+    blurb:
+      '用神经网络替代 Q 表，并通过经验回放与目标网络稳定异策略引导。',
+  },
+  'double-dqn': {
+    label: 'Double DQN',
+    blurb:
+      '用在线网络选择下一个贪婪动作、用目标网络评估它，减少噪声最大化的过高估计。',
+  },
+  dueling: {
+    label: 'Dueling DQN',
+    blurb:
+      '将 Q 值拆分为共享状态值流和动作优势流，使网络能分别学习状态质量与动作差异。',
+  },
+  c51: {
+    label: 'C51',
+    blurb:
+      '预测类别化的回报分布而非仅期望 Q 值，为贝尔曼目标提供更丰富的结构。',
+  },
+  rainbow: {
+    label: 'Rainbow',
+    blurb:
+      '组合 Double DQN、优先级回放、决斗头、多步目标、Noisy Nets 与 C51；其消融实验是主要教训。',
+  },
+  reinforce: {
+    label: 'REINFORCE',
+    blurb:
+      '基本的蒙特卡洛策略梯度算法：按采样动作的回合回报成比例地提高其对数概率。',
+  },
+  a2c: {
+    label: 'A2C / A3C',
+    blurb:
+      '加入学习到的价值评论家来估计引导优势，降低策略梯度方差；A3C 异步收集。',
+  },
+  trpo: {
+    label: 'TRPO',
+    blurb:
+      '用 KL 信任区域约束策略改进，使单次更新不会把收集数据的策略推得太远。',
+  },
+  ppo: {
+    label: 'PPO',
+    blurb:
+      '用裁剪的代理目标近似信任区域行为，让策略更新简单、稳定且可复用。',
+  },
+  ddpg: {
+    label: 'DDPG',
+    blurb:
+      '针对连续动作的异策略 Actor-Critic：确定性 actor 沿学习到的 Q 评论家的梯度行动，从回放中训练。',
+  },
+  td3: {
+    label: 'TD3',
+    blurb:
+      '保持 DDPG 的确定性但加以稳定：双评论家、延迟 actor 更新、目标策略平滑。',
+  },
+  sac: {
+    label: 'SAC',
+    blurb:
+      '在最大熵目标下训练随机异策略 actor：在成功的同时保留有用的动作随机性。',
+  },
+  dyna: {
+    label: 'Dyna-Q',
+    blurb:
+      '从真实转移学习模型，再在后台模拟更新上训练 Q 学习。规划与学习共享同一个值函数。',
+  },
+  mpc: {
+    label: 'MPC',
+    blurb:
+      '在模型内优化短动作序列，只执行第一个动作，然后从新状态重新规划。这是连续控制的决策时规划。',
+  },
+  mcts: {
+    label: 'MCTS',
+    blurb:
+      '用模型模拟未来、从当前状态构建搜索树，再根据树统计选择动作。',
+  },
+  alphazero: {
+    label: 'AlphaZero',
+    blurb:
+      '决策时用精确游戏规则做 MCTS，由从自博弈搜索目标训练的策略/值网络引导。',
+  },
+  muzero: {
+    label: 'MuZero',
+    blurb:
+      '保留 AlphaZero 搜索循环，但用学习到的潜在动力学模型替代已知规则用于规划。',
+  },
+  mbpo: {
+    label: 'MBPO',
+    blurb:
+      '从真实回放状态分支短模型生成的 rollout 并喂给 SAC，在限制模型偏差的同时提升样本效率。',
+  },
+  dreamer: {
+    label: 'Dreamer',
+    blurb:
+      '学习紧凑的潜在世界模型，并在想象未来中训练 actor-critic 行为，把模型当作训练环境。',
+  },
+};
+
+const familyZh: Record<FamilyId, { label?: string; blurb?: string }> = {
+  foundations: {
+    label: '基础',
+    blurb:
+      '一切方法所依赖的思想：赌博机探索、MDP 形式化、贝尔曼规划，以及从原始经验中学习价值。',
+  },
+  value: {
+    label: '基于值',
+    blurb:
+      '学习每个动作有多好，然后贪婪地行动。从表格型 TD 控制到攻克雅达利的深度 Q 网络。',
+  },
+  policy: {
+    label: '基于策略',
+    blurb:
+      '直接优化参数化策略：REINFORCE、Actor-Critic、信任区域以及连续控制变体。',
+  },
+  planning: {
+    label: '决策时规划',
+    blurb:
+      '在选择下一步动作时使用模型：从当前状态模拟可能的未来，运行搜索或优化，然后按最佳方案行动。',
+  },
+  background: {
+    label: '后台训练',
+    blurb:
+      '在环境之外使用学习到的模型生成合成经验，再在这些想象转移上训练值函数或 Actor-Critic。',
+  },
+};
+
+const regionZh: Record<string, string> = {
+  'VALUE-BASED': 'VALUE-BASED',
+  FOUNDATIONS: 'FOUNDATIONS',
+  'POLICY-BASED': 'POLICY-BASED',
+  'DECISION-TIME PLANNING': 'DECISION-TIME PLANNING',
+  'BACKGROUND TRAINING': 'BACKGROUND TRAINING',
+};
+
+/**
+ * Return a fully-localized snapshot of the map data for the given language.
+ * English is the base; for other languages the per-entity overrides are merged
+ * in, falling back to English for any entry that has not been translated yet.
+ */
+export function localize(lang: UILang) {
+  if (lang === 'en') {
+    return {
+      nodes,
+      familyMeta,
+      regions,
+      nodeById: new Map(nodes.map((n) => [n.id, n])),
+    };
+  }
+  const lNodes = nodes.map((n) => ({
+    ...n,
+    label: nodeZh[n.id]?.label ?? n.label,
+    blurb: nodeZh[n.id]?.blurb ?? n.blurb,
+  }));
+  const lNodeById = new Map(lNodes.map((n) => [n.id, n]));
+  const lFamilyMeta = Object.fromEntries(
+    (Object.keys(familyMeta) as FamilyId[]).map((k) => [
+      k,
+      {
+        ...familyMeta[k],
+        label: familyZh[k]?.label ?? familyMeta[k].label,
+        blurb: familyZh[k]?.blurb ?? familyMeta[k].blurb,
+      },
+    ]),
+  ) as Record<FamilyId, FamilyMeta>;
+  const lRegions = regions.map((r) => ({
+    ...r,
+    label: regionZh[r.label] ?? r.label,
+  }));
+  return { nodes: lNodes, familyMeta: lFamilyMeta, regions: lRegions, nodeById: lNodeById };
+}
+

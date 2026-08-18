@@ -165,7 +165,15 @@ html {
   }
 }
 
-/* Hide sidebar footer (GitHub icon, theme toggle — already in navbar) */
+/* Hide the desktop sidebar's bottom footer block. On the docs reading pages the
+   language/theme toggles live in the top row (custom `ToggleBar` via
+   `nav.children`), so the `slots`-injected toggles at the sidebar bottom must
+   not repeat there. The mobile drawer keeps its own top-row toggles, which live
+   in a different container, so they are unaffected.
+   We match on the class *attributes* rather than Tailwind utility selectors
+   (`.p-4.pt-2`) because those class names are not guaranteed to survive into
+   the compiled output when referenced from custom rules. */
+#nd-sidebar > div[class~='pt-2'][class~='p-4'],
 #nd-sidebar > .border-t {
   display: none !important;
 }

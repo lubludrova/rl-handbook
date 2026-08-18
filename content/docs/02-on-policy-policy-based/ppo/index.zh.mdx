@@ -1,0 +1,214 @@
+---
+title: PPO
+description: "近端策略优化（Proximal Policy Optimization），带裁剪的代理更新、GAE 与 actor-critic 训练。"
+---
+
+> **摘要.** TRPO 把策略更新保持在硬 KL 信赖域内，代价是一个沉重的二阶求解器。PPO 继承相同的局部更新思想，但用一个简单到可用普通一阶 SGD 的目标替换了约束问题，同时仍防止策略在一次更新中移动太远。
+
+TRPO 用干净的方案解决了灾难性更新问题：在 KL 约束下最大化局部代理。代价是一个沉重的更新过程，不适合标准深度学习训练。通过共轭梯度的 Fisher-vector 乘积，然后线搜索，然后可能拒绝该步。除此以外，深度 RL 中两个标准做法停止工作：你不能为几次 SGD 遍复用同一个 rollout 批次（TRPO 解一个约束问题，批次就完了），而且策略和价值函数不易共享一个网络主干（TRPO 的自然梯度几何只定义在策略分布上）。
+
+近端策略优化（Proximal Policy Optimization），由 Schulman 等人在 2017 年提出，采用相同的局部代理并问：能否在不求解约束问题的情况下得到同样的"靠近 $\pi_{\theta_{\text{old}}}$"效果？答案分两步。第一步（PPO-Penalty）把约束松弛为正则项。第二步（PPO-Clip）完全丢弃惩罚，转而修改代理，使得比值一旦偏离 $1$ 太远就停止有收益。裁剪变体成了默认，也是人们说"PPO"时通常指的东西。
+
+## 从约束到惩罚
+
+回忆上一章的 TRPO 更新。用一个批次由 $\pi_{\theta_{\text{old}}}$ 收集，优势相对旧策略估计，候选 $\pi_\theta$ 由重要性加权的代理打分。TRPO 然后在 KL 约束下最大化那个代理：
+
+$$
+\max_\theta \; \mathbb{E}_{s,a \sim \pi_{\theta_{\text{old}}}}\!\left[
+\frac{\pi_\theta(a \mid s)}{\pi_{\theta_{\text{old}}}(a \mid s)}
+\, A^{\pi_{\theta_{\text{old}}}}(s,a)
+\right]
+\quad \text{s.t.} \quad
+\bar{D}_{KL}(\pi_{\theta_{\text{old}}} \| \pi_\theta) \le \delta.
+$$
+
+简化约束问题的一个标准方法是把约束作为正则项移进目标。我们不是"在 KL 低于 $\delta$ 的同时最大化代理"，而是最大化代理减去一个 KL 项：
+
+$$
+\mathbb{E}_{s \sim \rho^{\pi_{\theta_{\text{old}}}}}\;
+\mathbb{E}_{a \sim \pi_{\theta_{\text{old}}}(\cdot \mid s)}\!\left[
+\frac{\pi_\theta(a \mid s)}{\pi_{\theta_{\text{old}}}(a \mid s)}
+\, A^{\pi_{\theta_{\text{old}}}}(s,a)
+\right]
+\;-\; \beta\, \bar D_{KL}\!\left(\pi_{\theta_{\text{old}}} \| \pi_\theta\right)
+\;\longrightarrow\; \max_\theta.
+$$
+
+两个期望分开写，以便数据流保持显式。状态来自旧策略的访问 $\rho^{\pi_{\theta_{\text{old}}}}$，动作来自 $\pi_{\theta_{\text{old}}}(\cdot \mid s)$，优势 $A^{\pi_{\theta_{\text{old}}}}$ 也在旧策略下评估，而唯一随候选 $\theta$ 移动的是比值分子中新的策略 $\pi_\theta(a \mid s)$。KL 上的横杠提醒我们，散度是在同一状态分布上取平均。
+
+这个单目标形式就是 **PPO-Penalty** 变体。与 TRPO 相比，实际收益很大。没有要强制的约束，没有要近似的 Fisher 矩阵，没有共轭梯度，没有线搜索。整个表达式是可微的 $\theta$ 函数，Adam 能像任何其他深度学习损失一样优化它。
+
+然而代价是，这不再是 TRPO 那种保证。TRPO 的 $\bar D_{KL} \le \delta$ 是对策略分布变化的硬界。惩罚版本只取一个平均 KL，并把它与代理权衡。只要平均保持小，少数状态仍可能看到大的策略偏移，而且因为 $\beta$ 有限，一个足够有利的代理总能压过惩罚。换句话说，惩罚把新策略往旧策略拉回，但它不像 TRPO 那样把它钉在一个区域内。它是正则化，不是信赖域。惩罚形式有时能胜任，但通常被下一个直接攻击比值的想法超越。
+
+## PPO-Clip
+
+裁剪变体从另一个角度看同一问题。它不是通过单独的 KL 项正则化，而是修改代理，使得比值一旦离开 $1$ 的小邻域就停止有收益。
+
+重要性比值与 TRPO 中是同一个对象。对一个采样的 $(s_t, a_t)$ 对，定义
+
+$$
+r_t(\theta) := \frac{\pi_\theta(a_t \mid s_t)}{\pi_{\theta_{\text{old}}}(a_t \mid s_t)}.
+$$
+
+如果 $r_t(\theta) = 1$，新策略给该动作分配的概率与旧策略相同。如果 $r_t(\theta) > 1$，采样动作在新策略下变得更可能；如果 $r_t(\theta) < 1$，则更不可能。乘以优势得到代理 $r_t(\theta)\, A^{\pi_{\theta_{\text{old}}}}(s_t,a_t)$，那正是 TRPO 中重要性加权的项。
+
+有两个思想要讨论。第一，**裁剪**重要性比值。定义裁剪后的比值
+
+$$
+r_t^{\text{clip}}(\theta) := \operatorname{clip}\!\bigl(r_t(\theta),\, 1-\epsilon,\, 1+\epsilon\bigr),
+$$
+
+以及对应的朴素代理
+
+$$
+L^{\text{clip}}(\theta) := \mathbb{E}_{t}\!\left[r_t^{\text{clip}}(\theta)\, A^{\pi_{\theta_{\text{old}}}}(s_t,a_t)\right].
+$$
+
+`clip` 函数在 $r_t(\theta)$ 留在 $[1-\epsilon,\,1+\epsilon]$ 内时不动它，而一旦比值试图离开那个区间就返回边界值 $1\pm\epsilon$。典型选择是 $\epsilon = 0.2$，意味着允许新策略使采样动作比之前多或少了约 $20\%$ 的可能性。越过边界后，代理停止随 $\theta$ 改变，于是那个方向的梯度变为零。
+
+<img
+  src="/docs-assets/02-on-policy-policy-based/ppo/trust-region-clipped-surrogate.png"
+  alt="默认代理函数与裁剪代理函数的比较"
+  style={{ maxWidth: '70%', margin: '2rem auto', display: 'block' }}
+/>
+
+从视觉上，你可以把它看作 $\pi_{\theta_{\text{old}}}$ 周围的一个区域。在默认代理函数中，梯度可以把 $\pi_{\theta}$ 推得远离 $\pi_{\theta_{\text{old}}}$，而裁剪有助于避免这一点：每当策略跑出区域 $[1-\epsilon, 1+\epsilon]$（例如 $[0.8, 1.2]$），目标停止奖励移动，这产生了一个类似的有效邻域，且容易得多。
+
+所以，裁剪已经防止比值失控，但它有个问题：上限是对称的。它限制了"有益的过度移动"的奖励，但同样隐藏了"有害移动"的代价。如果一个 minibatch 把策略推向实际伤害代理的方向，我们仍希望损失能推回；而用朴素裁剪，一旦 $r_t$ 离开区间，那个推回就消失了。
+
+修复是第二个操作：取未裁剪和裁剪代理的悲观 **最小值**（minimum），
+
+$$
+L^{\text{PPO}}(\theta) := \mathbb{E}_{t}\!\left[
+\min\!\left(
+r_t(\theta)\, A^{\pi_{\theta_{\text{old}}}}(s_t,a_t),\;
+r_t^{\text{clip}}(\theta)\, A^{\pi_{\theta_{\text{old}}}}(s_t,a_t)
+\right)
+\right].
+$$
+
+`min` 总是选两项中更悲观的那个。行为按优势的符号和比值漂移到的安全区间哪一侧，分成四种情况；例如坚持用 $[0.8, 1.2]$ 裁剪：
+
+| 优势符号 | 更新方向 | 比值最终落点 | 梯度 |
+| --- | --- | --- | --- |
+| $A^{\pi_{\theta_{\text{old}}}}(s_t,a_t) \ge 0$ | $\pi_\theta(a_t \mid s_t)\;\uparrow$ | $r_t(\theta) > 1.2$ | $0$ |
+| $A^{\pi_{\theta_{\text{old}}}}(s_t,a_t) \ge 0$ | $\pi_\theta(a_t \mid s_t)\;\uparrow$ | $r_t(\theta) < 0.8$ | 与未裁剪相同 |
+| $A^{\pi_{\theta_{\text{old}}}}(s_t,a_t) < 0$ | $\pi_\theta(a_t \mid s_t)\;\downarrow$ | $r_t(\theta) > 1.2$ | 与未裁剪相同 |
+| $A^{\pi_{\theta_{\text{old}}}}(s_t,a_t) < 0$ | $\pi_\theta(a_t \mid s_t)\;\downarrow$ | $r_t(\theta) < 0.8$ | $0$ |
+
+梯度只在两行中消失，即策略已经朝优势想要的方向冲过头。在另外两行，比值逆着优势漂移，未裁剪梯度保持全力。那种不对称就是 `min` 的全部技巧：裁剪只在无可再得时关闭梯度，而绝不在损失仍应推回时关闭。
+
+PPO 不是简单地裁剪每个比值再乘以优势。`min` 很重要。如果一个提议的改变伤害了代理，PPO 让损失感受到那全部损害。它只封顶"把有益方向推太远"带来的虚假收益。
+
+总之，把一切加起来给出如下目标：
+
+$$
+\mathbb{E}_{t}\!\left[
+\min\!\left(
+r_t(\theta)\, A^{\pi_{\theta_{\text{old}}}}(s_t,a_t),\;
+r_t^{\text{clip}}(\theta)\, A^{\pi_{\theta_{\text{old}}}}(s_t,a_t)
+\right)
+\right]
+\;-\; \beta\, \bar D_{KL}\!\left(\pi_{\theta_{\text{old}}} \| \pi_\theta\right)
+\;\longrightarrow\; \max_\theta.
+$$
+
+在实践中，裁剪常常独自完成所有工作：对 $\beta$ 的网格搜索可能落到 $\beta = 0$，使 KL 项冗余。一些实现为简单起见完全丢弃 KL 惩罚，但我们在代码中保留它。
+
+## Actor-Critic 实现
+
+PPO 常被作为策略梯度算法介绍，但实践的 PPO 是一个同策略 **actor-critic** 方法。行动者是策略网络 $\pi_\theta(a \mid s)$，参数 $\theta$。评论家是一个独立网络 $V_\phi(s)$，有自己的参数 $\phi$，预测从状态 $s$ 出发的折扣回报（或者它可以与策略共享一个主干并作为第二个头部存在，无论哪种方式它只是 $s$ 的函数，不是 $(s, a)$ 的函数）。
+
+这两个网络对应同一 rollout 批次上的 **两个独立训练任务**，该批次通过在环境中运行 $\pi_{\theta_{\text{old}}}$ 固定步数并存储每个转移 $(s, a, r)$ 来收集：
+
+- **策略** 通过最大化上一节的 $L^{\text{PPO}}(\theta)$ 更新。
+- **评论家** 通过最小化其预测 $V_\phi(s_t)$ 与逐步目标 $\hat Q(s_t, a_t)$ 之间的均方回归损失来更新：
+
+$$
+L_{\text{value}}(\phi) = \mathbb{E}_t\!\left[\bigl(\hat Q(s_t, a_t) - V_\phi(s_t)\bigr)^2\right].
+$$
+
+这与基于值一章中 DQN 回归损失形状相同，只是预测侧是 $V_\phi$ 而非 $Q_\theta$。$\mathbb{E}_t$ 是对 rollout 批次中时间步的平均。$\hat Q(s_t, a_t)$ 这里是旧策略动作价值 $Q^{\pi_{\theta_{\text{old}}}}(s_t, a_t)$ 的逐步经验估计，在 rollout 批次中每时间步计算一次。剩下的设计选择是如何构建 $\hat Q$。
+
+$\hat Q$ 的三个自然候选，每个是不同的偏差-方差权衡：
+
+- **蒙特卡洛回报** $\hat Q(s_t, a_t) = G_t = \sum_{k=0}^{T-t} \gamma^k r_{t+k}$。无偏，正是评论家平均上试图预测的。但每个未来奖励都给时间 $t$ 的目标贡献噪声，所以在长程上方差大。
+- **TD(0) 目标** $\hat Q(s_t, a_t) = r_t + \gamma V_{\phi_{\text{old}}}(s_{t+1})$。低方差，因为它只向前看一步，但有偏：右侧的自举 $V_{\phi_{\text{old}}}$ 本身就有某种误差，且那个误差传播进目标。
+- **基于 GAE 的 $\lambda$-回报** $\hat Q(s_t, a_t) = V_{\phi_{\text{old}}}(s_t) + \hat A_t^{\text{GAE}(\gamma,\lambda)}$。前两者的 $\lambda$ 混合：在 $\lambda = 1$ 时退化为蒙特卡洛回报，在 $\lambda = 0$ 时退化为 TD(0)，在典型 $\lambda \approx 0.95$ 时处于甜点——大部分 MC 的多步信用分配，大部分 TD 的方差抑制。
+
+PPO 默认第三种。优势估计 $\hat A_t^{\text{GAE}(\gamma,\lambda)}$ 已经出现在策略损失中，并在 TRPO 一章引入为
+
+$$
+\hat{A}_t^{\text{GAE}(\gamma,\lambda)}
+:= \sum_{l=0}^{T-t-1}(\gamma\lambda)^l\,\delta_{t+l}^V,
+\qquad
+\delta_t^V = r_t + \gamma V_{\phi_{\text{old}}}(s_{t+1}) - V_{\phi_{\text{old}}}(s_t).
+$$
+
+所以在它之上构建 $\hat Q$ 不花额外代价：由同一 $Q = V + A$ 恒等式，我们可以用 $\hat Q(s_t, a_t) = V_{\phi_{\text{old}}}(s_t) + \hat A_t^{\text{GAE}}$。评论家于是把实时 $V_\phi(s_t)$ 回归到这些固定回报。
+
+同策略设定在这里也有帮助。与 Q-learning 不同——其 TD 目标必须通过回放缓冲中任何陈旧行为策略访问的状态的价值自举——PPO 的 rollout 是一致且近期的，所以多步回报是可靠的。
+
+在原始论文中你可以看到一个最终复合目标，它（近似）在每次迭代被最大化：
+
+$$
+L^{\text{PPO+value+S}}_t(\theta, \phi) = \hat{\mathbb{E}}_t\!\left[
+L^{\text{PPO}}_t(\theta) - c_1\, L_{\text{value}}(\phi) + c_2\, H\!\bigl(\pi_\theta(\cdot \mid s_t)\bigr)
+\right].
+$$
+
+三部分：
+
+- **$L^{\text{PPO}}_t(\theta)$** — 来自 PPO-Clip 节的逐步裁剪策略代理。被最大化。
+- **$L_{\text{value}, t}(\phi) = \bigl(\hat Q(s_t, a_t) - V_\phi(s_t)\bigr)^2$** — 我们刚推导的逐步评论家回归损失。以权重 $c_1$ 减去，所以它同一步被最小化。
+- **$H\!\bigl(\pi_\theta(\cdot \mid s_t)\bigr)$** — 策略在 $s_t$ 的熵。以权重 $c_2$ 加入，奖励分散的动作分布，这减缓策略坍缩到近确定性策略。所以这个项只是让策略更随机、更接近动作上的均匀分布。这个奖励继承自 A3C（Mnih 等人，2016）且是 **可选** 的：原始 PPO 论文在 Atari 上用 $c_2 = 0.01$ 启用它，但在 MuJoCo 连续控制上禁用它。我们遵循相同默认并把它关掉。
+
+## 训练循环
+
+一个 PPO 迭代有简单的形态：
+
+```
+初始化策略 pi_theta 和价值函数 V_phi
+
+while 未收敛：
+    pi_old    <- pi_theta                          # 本次迭代的策略快照
+    V_phi_old <- V_phi                             # 本次迭代的价值网络快照
+    Batch rollout <- generate(pi_old)             # 在 pi_old 下收集 rollout (s, a, r)
+
+    为 D 中所有 s 计算 V_phi_old(s)                # 缓存快照值，无梯度
+    为 D 中所有 (s, a) 计算优势 A_hat              # 通过 GAE，使用 V_phi_old
+    计算价值目标 Q_hat                            # Q_hat = V_phi_old + A_hat
+    在 D 内归一化优势
+
+    for epoch in 1..n_ppo_epochs:
+        for batch in batches(D):
+            for 每个 batch 中的 (s, a):
+                计算重要性比值 r_t(theta, s, a)
+                计算裁剪比值 r_t_clip(theta, s, a)
+            计算裁剪策略损失                       # 使用 r_t, r_t_clip, A_hat
+            计算价值回归损失                       # 对照 Q_hat
+            (可选) 计算熵奖励
+            组合成一个标量损失；反向传播；优化器步
+
+    丢弃 D
+```
+
+PPO 使用的超参数是普通的：裁剪范围 $\epsilon \approx 0.2$，折扣 $\gamma = 0.99$，GAE $\lambda = 0.95$，每 rollout 批次 4–10 个 SGD 轮，minibatch 几十到几百个样本，Adam 学习率约 $3 \times 10^{-4}$，以及熵系数 $c_2 \approx 0.01$（如果启用奖励）。我们 `ppo.py` 中的 `PPOConfig` 精确使用这些默认，且熵奖励关闭。
+
+不显眼的部分藏在内循环里：每个 rollout 批次被传入几个完整的 minibatch SGD 轮。用未裁剪代理这会很危险，因为每步都把策略推离 $\pi_{\theta_{\text{old}}}$，而经过几遍后批次不再代表当前策略诱导的分布。重要性比值暴涨，方差爆炸，更新变得有破坏性。这就是 PPO 论文指出的、作为信赖域方法动机的"破坏性大策略更新"失败模式。裁剪自动化解它：一旦某个样本的比值在优势想推的方向上离开 $[1 - \epsilon, 1 + \epsilon]$，该样本上的目标就变平。早期的 SGD 步把策略推向数据仍支持的方向；后期的步看到比值已到边界并停止进一步拉动。批次是 **自限的**（self-limiting），这意味着当策略漂移足以使重要性权重不可靠时，那些方向上的损失已经关闭。那就是为什么在单个批次上跑 K 轮是一个稳定操作。注意这不会使 PPO 变成异策略：批次是来自 $\pi_{\theta_{\text{old}}}$ 的新鲜数据，不是来自许多旧策略的回放。
+
+退一步看，PPO 并非每种设定下最样本高效的：异策略 actor-critic 算法能从回放数据榨取更多，专门方法能在特定基准上击败它。让它成为默认的是稳定性、实现简单性，以及与标准深度学习工具兼容性的组合。PPO 也成了早期语言模型 RLHF 流水线的默认优化器，也是因为它的操作形态：一个新鲜同策略批次、优势估计、几个稳定的 minibatch 更新，以及内建的策略漂移上限。在那里策略就是语言模型本身，而对参考模型的 KL 惩罚接管了信赖域的角色。要点不是 PPO 神奇地最优：而是一个对概率比的小的目标级约束，就足以让普通 SGD 用于同策略策略优化。
+
+## 完整代码
+
+完整可运行示例，包括 CartPole rollout、GAE、旧对数概率存储、minibatch 更新和 PPO-Clip 损失：
+[`ppo.py`](https://github.com/lubludrova/rl-handbook/blob/main/content/docs/02-on-policy-policy-based/ppo/ppo.py)
+
+你可能还会发现以下实现有用：
+- [OpenAI Spinning Up：PyTorch PPO](https://github.com/openai/spinningup/tree/master/spinup/algos/pytorch/ppo)
+- [Yandex Practical RL：PPO](https://github.com/yandexdataschool/Practical_RL/blob/master/week09_policy_II/ppo.ipynb)
+- [Boyu AI：PPO](https://github.com/boyu-ai/Hands-on-RL/blob/main/第12章-PPO算法.ipynb)
+
+## 接下来是什么
+
+PPO 暂时收尾了同策略策略类这条线：收集新鲜 rollout，估计优势，跑几个裁剪的 SGD 轮，然后丢弃批次。下一章问一个不同的问题：我们能否构建 actor-critic 方法，但作为异策略算法？下一章介绍的 DDPG、TD3 和 SAC 回答了这个问题。

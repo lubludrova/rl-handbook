@@ -1,19 +1,32 @@
-import { defineConfig, defineDocs } from 'fumadocs-mdx/config';
+import { defineConfig, defineCollections } from 'fumadocs-mdx/config';
 import { metaSchema, pageSchema } from 'fumadocs-core/source/schema';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 
-export const docs = defineDocs({
+export const enDocs = defineCollections({
+  type: 'doc',
   dir: 'content/docs',
-  docs: {
-    schema: pageSchema,
-    postprocess: {
-      includeProcessedMarkdown: true,
-    },
+  files: ['**/*.mdx', '!**/*.zh.mdx', '!**/*.ru.mdx'],
+  schema: pageSchema,
+  async: true,
+  postprocess: {
+    includeProcessedMarkdown: true,
   },
-  meta: {
-    schema: metaSchema,
-  },
+});
+
+export const zhDocs = defineCollections({
+  type: 'doc',
+  dir: 'content/docs',
+  files: ['**/*.zh.mdx'],
+  schema: pageSchema,
+  dynamic: true,
+});
+
+export const meta = defineCollections({
+  type: 'meta',
+  dir: 'content/docs',
+  files: ['**/*.json'],
+  schema: metaSchema,
 });
 
 export default defineConfig({

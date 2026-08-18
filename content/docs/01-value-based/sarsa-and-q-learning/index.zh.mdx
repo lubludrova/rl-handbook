@@ -1,0 +1,246 @@
+---
+title: Sarsa 与 Q-Learning
+description: "基于 Sarsa、Q-learning、ε-贪婪行为以及同策略/异策略区分的无模型 TD 控制。"
+---
+
+> **摘要.** 上一章估计了一个固定策略的价值。Sarsa 和 Q-learning 加上了控制：随着动作价值估计的改进，策略也发生变化。二者都是表格 TD 控制方法，但 Sarsa 从实际采取的下一个动作学习，而 Q-learning 从贪婪的下一个动作学习。
+
+蒙特卡洛和 TD 预测提出了一个固定策略的问题：如果智能体一直遵循 $\pi$，我们应该给每个状态赋什么价值？控制提出一个不同的问题。智能体必须利用经验，不仅估计价值，还要改进产生未来经验的行为。
+
+这是广义策略迭代的无模型版本。评估与改进仍然相互追逐，就像在动态规划中那样，但没有可供扫描的环境模型。唯一可用的数据就是采样转移的流：
+
+$$
+(S_t, A_t, R_{t+1}, S_{t+1}).
+$$
+
+- $S_t$ — 动作之前的状态。
+- $A_t$ — 在该状态下选择的动作。
+- $R_{t+1}$ — 采取动作后收到的奖励。
+- $S_{t+1}$ — 环境到达的下一状态。
+
+本章聚焦于两个经典的单步 TD 控制算法：**Sarsa** 和 **Q-learning**。
+
+## 为什么控制学习 $Q$ 而非仅 $V$
+
+一个状态价值估计 $V(s)$ 告诉我们，在某个策略下处于状态 $s$ 有多好。这对预测足够，但对无模型控制不够。要只用 $V$ 来改进策略，智能体得问：如果我从状态 $s$ 采取动作 $a$，环境可能把我送到哪些下一状态，我可能收到什么奖励，那些下一状态又有多有价值？换句话说，它需要通过环境模型向前看一步来比较动作：
+
+$$
+\sum_{s',r} p(s', r \mid s,a)\left[r + \gamma V(s')\right].
+$$
+
+这个表达式依赖于 $p(s', r \mid s,a)$，即环境的一步动态。无模型学习没有那张表；它只在尝试动作后看到采样的结果。没有模型，智能体就无法通过对可能下一状态求和来评估所有候选动作。
+
+一个动作价值估计 $Q(s,a)$ 通过把动作选择移进价值表内部解决了这个问题。它不只问一个状态有多好，而是问在该状态采取某个特定动作、然后从那里继续下去有多好。
+
+理想的对象是 MDP 一章中的最优动作价值函数：
+
+$$
+q_*(s,a) = \sum_{s', r} p(s', r \mid s, a) \left[r + \gamma \max_{a'} q_*(s',a')\right].
+$$
+
+小写 $q_*$ 表示真实的最优动作价值函数。大写 $Q$ 表示智能体当前从样本中学习的表。Q-learning 试图把这张表移向 $q_*$；Sarsa 把它移向当前行为策略的动作价值。两种情况下，学习 $Q(s,a)$ 的原因是一样的：一旦动作直接附带了价值，策略改进就不再需要基于模型的前看。智能体可以简单地比较可用动作的学习价值，并选择最大的那个：
+
+$$
+\pi(s) = \arg\max_a Q(s,a).
+$$
+
+不需要转移概率。这就是为什么 Sarsa 和 Q-learning 更新的是以状态-动作对为索引的表，而不是只以状态为索引的表。
+
+## 基于样本的广义策略迭代
+
+Sarsa 和 Q-learning 都交错两个过程：
+
+1. **评估：** 从一个采样转移更新当前 $Q$ 表的一个条目。
+2. **改进：** 使用相对于该表贪婪或近乎贪婪的策略来选择未来动作。
+
+通常的行为策略是 **$\epsilon$-贪婪**（$\epsilon$-greedy），即赌博机一章引入的同一个探索规则。以概率 $1-\epsilon$，智能体选择 $Q(s,a)$ 最大的动作；以概率 $\epsilon$，它均匀随机地选择。
+
+更明确地说，对于有限动作集 $\mathcal{A}$：
+
+$$
+\pi(a \mid s) =
+\begin{cases}
+1 - \epsilon + \epsilon / |\mathcal{A}|, & \text{if } a = \arg\max_{a'} Q(s,a'), \\
+\epsilon / |\mathcal{A}|, & \text{otherwise.}
+\end{cases}
+$$
+
+这条规则刻意简单。它让智能体大部分时间利用当前价值估计，同时仍给每个动作非零概率。在表格控制中，那种持续的探索是确保状态-动作对不断收到更新的实际方式。
+
+## Sarsa：学习行为策略的价值
+
+Sarsa 得名于一次更新中用到的五个量：
+
+$$
+(S_t, A_t, R_{t+1}, S_{t+1}, A_{t+1}).
+$$
+
+智能体从 $S_t$ 出发，采取 $A_t$，收到 $R_{t+1}$，到达 $S_{t+1}$，然后从其当前行为策略选择下一个动作 $A_{t+1}$。只有在这个下一动作已知之后，Sarsa 才形成它的目标：
+
+$$
+Q(S_t,A_t) \leftarrow Q(S_t,A_t) + \alpha \left[R_{t+1} + \gamma Q(S_{t+1}, A_{t+1}) - Q(S_t,A_t)\right].
+$$
+
+方括号内的项是动作价值的 TD 误差：它衡量旧估计 $Q(S_t,A_t)$ 与新的单步目标之间的差距。该目标是观测到的奖励加上智能体实际移入的状态-动作对的折扣估计 $Q(S_{t+1}, A_{t+1})$。
+
+最后这一句是关键。如果 $A_{t+1}$ 来自一个 $\epsilon$-贪婪策略，那么 Sarsa 的目标就包含了 $\epsilon$-贪婪行为的后果：有时下一个动作是探索性的，而更新就从那种可能性中学习。它不假装智能体下一步会完美贪婪。它评估并改进同一个正在收集数据的策略，因此 Sarsa 是 **同策略**（on-policy）的。
+
+学习循环有一个小但重要的形态：在循环之前选择第一个动作；每次转移之后，选择下一个动作；使用两个动作一起更新；然后向前移动。在可运行示例中，Sarsa 更新是：
+
+```python
+def sarsa_update(
+    q: np.ndarray,
+    state: int,
+    action: int,
+    reward: float,
+    next_state: int,
+    next_action: int,
+    done: bool,
+    alpha: float,
+    gamma: float,
+) -> None:
+    """就地应用同策略单步 Sarsa 更新。"""
+    next_value = 0.0 if done else q[next_state, next_action]
+    target = reward + gamma * next_value
+    q[state, action] += alpha * (target - q[state, action])
+```
+
+## Q-Learning：学习贪婪策略的价值
+
+Q-learning 只改变自举项：
+
+$$
+Q(S_t,A_t) \leftarrow Q(S_t,A_t) + \alpha \left[R_{t+1} + \gamma \max_{a'} Q(S_{t+1}, a') - Q(S_t,A_t)\right].
+$$
+
+Q-learning 不使用行为策略实际采样的下一个动作，而是问一个反事实的问题：如果从 $S_{t+1}$ 起智能体是贪婪的，它会得到什么价值？答案是下一状态中最大的动作价值。
+
+那个 $\max_{a'}$ 正是让 Q-learning 成为 **异策略**（off-policy）的原因。行为策略可以是探索性的、过时的，或与正在学习的贪婪策略不同。更新仍然把 $Q$ 移向贪婪目标策略的动作价值函数，因为采样的下一动作没有出现在目标中。
+
+```python
+def q_learning_update(
+    q: np.ndarray,
+    state: int,
+    action: int,
+    reward: float,
+    next_state: int,
+    done: bool,
+    alpha: float,
+    gamma: float,
+) -> None:
+    """就地应用异策略单步 Q-learning 更新。"""
+    next_value = 0.0 if done else np.max(q[next_state])
+    target = reward + gamma * next_value
+    q[state, action] += alpha * (target - q[state, action])
+```
+
+把两个目标并排比较：
+
+$$
+\begin{aligned}
+\text{Sarsa 目标} &= R_{t+1} + \gamma Q(S_{t+1}, A_{t+1}), \\
+\text{Q-learning 目标} &= R_{t+1} + \gamma \max_{a'} Q(S_{t+1}, a').
+\end{aligned}
+$$
+
+其余一切都共享：两种方法都采样真实转移，在一步之后自举，并以学习率 $\alpha$ 调整表的一个条目。
+
+行为策略生成经验。目标策略是被学习其价值的策略。在 Sarsa 中，二者是同一个当前探索性策略。在 Q-learning 中，行为可以是 $\epsilon$-贪婪的，但目标是 $Q$ 诱导出的贪婪策略。
+
+## 收敛性与探索
+
+在表格情形下，Q-learning 在标准条件下收敛到 $Q^*$：每个状态-动作对必须持续被访问，且学习率必须适当衰减。Watkins 和 Dayan 在 1992 年证明了这个结果。对于本手册这一章，重要的是结论本身，而不是证明。
+
+在实践中，这通常实现为 **衰减的 $\epsilon$-贪婪**，而不是固定的探索率。在训练早期，$\epsilon$ 保持较高，以尝试许多动作。随着表变得更可靠，$\epsilon$ 退火到一个小的下限，使行为近乎贪婪，同时仍保留一些探索机会。如果 $\epsilon$ 下降太快，智能体可能停止更新那些因为早期噪声而看起来糟糕的动作。
+
+对于 Sarsa，$\epsilon$ 调度也改变了正在被学习的策略。如果 $\epsilon$ 固定高于零，行为策略始终保持部分随机，于是 Sarsa 为那个部分探索性的策略学习动作价值。如果 $\epsilon$ 缓慢衰减到零，行为策略就越来越接近贪婪。只要沿途对相关状态-动作对有足够的访问，Sarsa 就能逼近贪婪最优策略，而非永久探索性的那个。
+
+## 期望 Sarsa 与 $n$ 步 Sarsa
+
+Sarsa 采样一个下一个动作 $A_{t+1}$ 并使用它的价值。**期望 Sarsa**（Expected Sarsa）把那个采样值替换为在当前策略下的期望：
+
+$$
+Q(S_t,A_t) \leftarrow Q(S_t,A_t) + \alpha \left[R_{t+1} + \gamma \sum_{a'} \pi(a' \mid S_{t+1}) Q(S_{t+1},a') - Q(S_t,A_t)\right].
+$$
+
+对于一个 $\epsilon$-贪婪策略，这个期望按概率对贪婪动作和探索性动作取平均。更新仍然绑定到行为策略，但它去掉了采样单个 $A_{t+1}$ 带来的额外随机性。这就是为什么期望 Sarsa 常被描述为更低方差的变体。
+
+**$n$ 步 Sarsa**（$n$-step Sarsa）把单步目标跨越若干个采样的奖励再自举：
+
+$$
+G_{t:t+n} = R_{t+1} + \gamma R_{t+2} + \cdots + \gamma^{n-1}R_{t+n} + \gamma^n Q(S_{t+n}, A_{t+n}).
+$$
+
+当 $n=1$ 时，这就是普通 Sarsa。随着 $n$ 增大，目标在重新依赖当前表之前使用更多真实奖励。这是上一章 $n$ 步桥梁在控制一侧的版本，同样的思想之后会在深度基于值智能体内部再次出现。
+
+## 实验：悬崖行走
+
+本章的实验是 **悬崖行走**（Cliff Walking）任务，用 Gymnasium 实现为 `CliffWalking-v1`。网格左下角有一个起始格子，右下角有一个目标格子，它们之间是悬崖格子。正常一步给出奖励 $-1$。踏入悬崖给出奖励 $-100$ 并把智能体送回起点。
+
+<img
+  src="/docs-assets/01-value-based/sarsa-and-q-learning/cliff-walking-gridworld.gif"
+  alt="悬崖行走环境：智能体从左下角出发，目标在右下角，悬崖位于两者之间。"
+  style={{ maxWidth: '70%', margin: '2rem auto', display: 'block' }}
+/>
+
+最短路径沿着悬崖边缘。一个完美贪婪的智能体可以安全地沿它走。然而，一个 $\epsilon$-贪婪的智能体有时会采取随机动作。在悬崖附近，一次向下的随机移动代价高昂。
+
+脚本用相同的超参数训练两种方法：`500` 个片段，$\alpha = 0.5$，$\gamma = 1.0$，固定 $\epsilon = 0.1$。代码被刻意组织成两种算法共享同一个训练包装器。该包装器接收一个片段运行器，创建一个 $Q$ 表，运行片段，并记录回报：
+
+```python
+def train_method(
+    run_episode: EpisodeRunner,
+    config: CliffWalkingConfig,
+    seed_offset: int = 0,
+) -> dict[str, np.ndarray]:
+    """在 CliffWalking-v1 上训练一个表格控制方法。"""
+    env = gym.make("CliffWalking-v1")
+    env.action_space.seed(config.seed + seed_offset)
+
+    n_states = int(env.observation_space.n)
+    n_actions = int(env.action_space.n)
+    q = np.zeros((n_states, n_actions))
+    returns = np.zeros(config.episodes)
+    steps = np.zeros(config.episodes, dtype=int)
+    rng = np.random.default_rng(config.seed + seed_offset)
+
+    for episode in range(config.episodes):
+        env.reset(seed=config.seed + seed_offset + episode)
+        returns[episode], steps[episode] = run_episode(env, q, config, rng)
+
+    env.close()
+    return {"q": q, "returns": returns, "steps": steps}
+```
+
+比较就只是用不同片段函数对同一个包装器的两次调用：
+
+```python
+def train(config: CliffWalkingConfig) -> dict[str, dict[str, np.ndarray]]:
+    """用相同的超参数训练 Sarsa 和 Q-learning。"""
+    return {
+        "Sarsa": train_method(run_sarsa_episode, config, seed_offset=0),
+        "Q-learning": train_method(run_q_learning_episode, config, seed_offset=10_000),
+    }
+```
+
+环境、表形状、学习率、折扣、探索率和片段数量在算法间共享。唯一的算法差异在片段运行器内部：Sarsa 调用使用采样下一动作的更新，而 Q-learning 调用使用贪婪下一状态价值的更新。
+
+训练之后，脚本打印每个学到的表所诱导出的贪婪策略，并绘制片段回报的移动平均。Sarsa 在其目标中看到了探索风险。当它站在悬崖附近时，下一个动作 $A_{t+1}$ 从同一个 $\epsilon$-贪婪行为中采样，该行为偶尔会踏入危险。因此学到的价值包含了探索的代价。Sarsa 倾向于偏好悬崖上方一行更安全的路径，即使那条路径更长。
+
+Q-learning 学习一个不同的对象。它的目标使用 $\max_{a'} Q(S_{t+1},a')$，因此它评估的是贪婪的延续，而非探索性的延续。它可以学到，悬崖边缘路径对一个贪婪策略是最优的。在训练期间，行为策略仍可能因为随机探索动作掉入悬崖，但正在学习的价值指向最短的贪婪路径。
+
+学习曲线从另一个角度显示了同样的区别。Sarsa 的回报通常更平稳，因为它学到的策略考虑了自己实际会采取的探索性动作。Q-learning 在训练中可能下跌更陡：贪婪策略可能沿着悬崖边缘跑，而行为策略仍注入随机探索动作。Sarsa 问："在我实际遵循的策略下，接下来发生了什么？" Q-learning 问："贪婪策略接下来会做什么？" 这个单步目标的差异解释了悬崖行走中"安全路径 vs. 悬崖边缘"的行为。
+
+## 完整代码
+
+包含悬崖行走、Sarsa、Q-learning 和学习曲线绘图的完整可运行示例：
+[`sarsa-and-q-learning.py`](https://github.com/lubludrova/rl-handbook/blob/main/content/docs/01-value-based/sarsa-and-q-learning/sarsa-and-q-learning.py)
+
+你可能还会发现以下实现很有用：
+- [VachanVY：SARSA、Q-learning、期望 SARSA](https://github.com/VachanVY/Reinforcement-Learning/blob/main/qlearning_sarsa_expectedsarsa_on_cliff_walking.py)
+- [Boyu AI：时序差分算法](https://github.com/boyu-ai/Hands-on-RL/blob/main/第5章-时序差分算法.ipynb)
+- [Gibberblot：时序差分学习](https://gibberblot.github.io/rl-notes/single-agent/temporal-difference-learning.html)
+
+## 接下来是什么
+
+表格 Sarsa 和 Q-learning 假设可以为每个状态-动作对存储一个独立的条目。这对小网格有效，但对大观测空间无效。下一章用参数化动作价值函数 $Q_\theta(s,a)$ 替换表。这一变化引出了 DQN：带神经网络的 Q-learning，加上当异策略自举与函数近似结合时所需的稳定性技巧。
