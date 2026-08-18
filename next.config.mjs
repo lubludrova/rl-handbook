@@ -6,6 +6,10 @@ const withMDX = createMDX();
 
 /** @type {import('next').NextConfig} */
 const config = {
+  // `shiki` is used by fumadocs-mdx's dynamic (runtime-compiled) collections
+  // for code highlighting. Keep it external so it is loaded natively at
+  // runtime instead of being bundled into the server build.
+  serverExternalPackages: ['shiki'],
   // Replace `next-themes` (which injects an inline <script> that triggers the
   // React 19 "Encountered a script tag" warning on client navigations) with a
   // drop-in implementation that avoids rendering scripts inside components.

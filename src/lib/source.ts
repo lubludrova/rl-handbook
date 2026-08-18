@@ -1,13 +1,40 @@
-import { docs } from 'collections/server';
-import { type InferPageType, loader } from 'fumadocs-core/source';
+import { enDocs, meta } from 'collections/server';
+import { zhDocs } from 'collections/dynamic';
+import { type InferPageType, loader, type StaticSource } from 'fumadocs-core/source';
 import { lucideIconsPlugin } from 'fumadocs-core/source/lucide-icons';
-import { createI18nMiddleware } from 'fumadocs-core/i18n/middleware';
 import { i18n } from '@/lib/i18n';
+
+// English pages are compiled at build time (async chunks), Chinese pages are
+// compiled at runtime (dynamic collection). Both are merged into a single
+// source so the existing `source.getPage(slug, lang)` API keeps working.
+type PageData = (typeof enDocs)[number] | (typeof zhDocs)[number];
+type MetaData = (typeof meta)[number];
+
+const files: StaticSource<{ pageData: PageData; metaData: MetaData }>['files'] = [
+  ...enDocs.map((entry) => ({
+    type: 'page' as const,
+    path: entry.info.path,
+    absolutePath: entry.info.fullPath,
+    data: entry,
+  })),
+  ...zhDocs.map((entry) => ({
+    type: 'page' as const,
+    path: entry.info.path,
+    absolutePath: entry.info.fullPath,
+    data: entry,
+  })),
+  ...meta.map((entry) => ({
+    type: 'meta' as const,
+    path: entry.info.path,
+    absolutePath: entry.info.fullPath,
+    data: entry,
+  })),
+];
 
 // See https://fumadocs.dev/docs/headless/source-api for more info
 export const source = loader({
   baseUrl: '/docs',
-  source: docs.toFumadocsSource(),
+  source: { files } as StaticSource<{ pageData: PageData; metaData: MetaData }>,
   i18n,
   plugins: [lucideIconsPlugin()],
   pageTree: {
@@ -27,12 +54,6 @@ export const source = loader({
   },
 });
 
-export const i18nMiddleware = createI18nMiddleware({
-  defaultLanguage: 'en',
-  languages: ['en', 'zh'],
-  hideLocale: 'default-locale',
-});
-
 export function getPageImage(page: InferPageType<typeof source>) {
   // Include the locale as the first segment so OG image URLs distinguish
   // between languages (e.g. /og/docs/en/... vs /og/docs/zh/...).
@@ -47,9 +68,14 @@ export function getPageImage(page: InferPageType<typeof source>) {
 
 export async function getLLMText(page: InferPageType<typeof source>) {
   await page.data.load();
-  const processed = await page.data.getText('processed');
+  // Chinese pages are compiled at runtime without postprocessing, so
+  // `processed` markdown is unavailable there — fall back to raw content.
+  const text =
+    page.locale === i18n.defaultLanguage
+      ? await page.data.getText('processed')
+      : await page.data.getText('raw');
 
   return `# ${page.data.title}
 
-${processed}`;
+${text}`;
 }

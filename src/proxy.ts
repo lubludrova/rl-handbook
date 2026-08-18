@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { i18nMiddleware } from '@/lib/source';
+import { i18nMiddleware } from '@/lib/i18n-middleware';
 
 const BYPASS_COOKIE = 'rlh_preview';
 
