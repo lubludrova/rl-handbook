@@ -11,6 +11,7 @@ import {
 } from 'fumadocs-ui/layouts/docs/page';
 import { notFound, redirect } from 'next/navigation';
 import { getMDXComponents } from '@/components/mdx';
+import { getLangFromPath, t } from '@/lib/ui';
 import type { Metadata } from 'next';
 import { createRelativeLink } from 'fumadocs-ui/mdx';
 
@@ -97,7 +98,9 @@ export default async function Page(props: PageProps<'/[lang]/docs/[[...slug]]'>)
               border: '1px solid var(--color-fd-border)',
               background: 'transparent',
             }}
-          />
+          >
+            {t(lang, 'article.copyMarkdown')}
+          </MarkdownCopyButton>
           <ArticleFeedback url={pageUrl} title={page.data.title} />
         </div>
       </div>

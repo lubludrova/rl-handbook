@@ -2,10 +2,13 @@
 
 import { getArticleFeedbackIssueUrl } from '@/lib/feedback';
 import { useState } from 'react';
+import { usePathname } from 'next/navigation';
+import { getLangFromPath, t } from '@/lib/ui';
 
 export function ArticleFeedback({ url, title }: { url: string; title: string }) {
   const [clicked, setClicked] = useState(false);
   const issueUrl = getArticleFeedbackIssueUrl({ url, title });
+  const lang = getLangFromPath(usePathname());
 
   return (
     <a
@@ -22,9 +25,9 @@ export function ArticleFeedback({ url, title }: { url: string; title: string }) 
         border: '1px solid var(--color-fd-border)',
         background: clicked ? 'var(--color-fd-accent)' : 'transparent',
       }}
-      aria-label="Send feedback about this page"
+      aria-label={t(lang, 'article.feedbackAria')}
     >
-      {clicked ? 'Opening...' : 'Feedback'}
+      {clicked ? t(lang, 'article.feedbackOpening') : t(lang, 'article.feedback')}
     </a>
   );
 }

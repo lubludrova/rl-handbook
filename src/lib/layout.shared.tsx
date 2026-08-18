@@ -20,6 +20,7 @@ export function useBaseOptions(): BaseLayoutProps {
   return {
     nav: {
       title: 'RL Handbook',
+      url: prefix || '/',
     },
     links: [
       {
