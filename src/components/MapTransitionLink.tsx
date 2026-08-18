@@ -4,6 +4,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { VIEW_H, VIEW_W } from './map/map-data';
 import { MapMorphOverlay } from './MapMorphOverlay';
+import { getLangFromPath, t } from '@/lib/ui';
 
 interface RestView {
   x: number;
@@ -19,11 +20,10 @@ export function MapTransitionLink() {
   const [restView, setRestView] = useState<RestView>({ x: 0, y: 0, k: 1 });
   const navedRef = useRef(false);
 
-  // Extract current language from pathname. Default language (en) has no
-  // prefix in the URL; only `zh` is prefixed.
-  const segments = pathname.split('/').filter(Boolean);
-  const lang = segments[0] === 'zh' ? 'zh' : 'en';
-  const mapUrl = lang === 'en' ? '/map' : '/zh/map';
+  // Resolve the active language from the pathname. Default language (en) has
+  // no prefix in the URL; every other language is prefixed (`/zh`, `/ru`, …).
+  const lang = getLangFromPath(pathname);
+  const mapUrl = lang === 'en' ? '/map' : `/${lang}/map`;
 
   useEffect(() => {
     router.prefetch(mapUrl);
@@ -60,7 +60,7 @@ export function MapTransitionLink() {
       <a
         href={mapUrl}
         onClick={openMap}
-        aria-label="Explore the Map of RL"
+        aria-label={t(lang, 'map.aria')}
         aria-disabled={morphing}
         className="icon-link font-heading text-xs uppercase underline underline-offset-4"
         style={{
@@ -68,7 +68,7 @@ export function MapTransitionLink() {
           color: 'var(--color-fd-muted-foreground)',
         }}
       >
-        {morphing ? 'entering the map…' : 'or explore the Map of RL →'}
+        {morphing ? t(lang, 'map.entering') : t(lang, 'map.orExplore')}
       </a>
 
       {morphing && (

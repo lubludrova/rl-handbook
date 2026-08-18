@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { memo, useState, use } from 'react';
 import { HeroCanvas } from '@/components/HeroCanvas';
 import { MapTransitionLink } from '@/components/MapTransitionLink';
+import { getLangFromPath, type UILang } from '@/lib/ui';
 
 const SectionTitle = memo(function SectionTitle({ children }: { children: React.ReactNode }) {
   return (
@@ -19,7 +20,7 @@ const SectionTitle = memo(function SectionTitle({ children }: { children: React.
   );
 });
 
-type Lang = 'en' | 'zh';
+type Lang = UILang;
 
 const texts: Record<Lang, {
   heroTitle: string;
@@ -203,11 +204,12 @@ const chaptersZh: typeof chaptersEn = [
 
 export default function HomePage({ params: paramsPromise }: { params: Promise<{ lang: string }> }) {
   const params = use(paramsPromise);
-  const lang = (params.lang === 'zh' ? 'zh' : 'en') as Lang;
+  const lang = getLangFromPath('/' + params.lang) as Lang;
   const t = texts[lang];
   const chapters = lang === 'zh' ? chaptersZh : chaptersEn;
-  // Default language (en) has no prefix in the URL; only `zh` is prefixed.
-  const prefix = lang === 'zh' ? '/zh' : '';
+  // Default language (en) has no prefix in the URL; every other language is
+  // prefixed with its language code (`/zh`, `/ru`, …).
+  const prefix = lang === 'en' ? '' : `/${lang}`;
 
   return (
     <main className="landing-page">

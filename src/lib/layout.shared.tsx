@@ -2,6 +2,7 @@
 
 import { usePathname } from 'next/navigation';
 import type { BaseLayoutProps } from 'fumadocs-ui/layouts/shared';
+import { getLangFromPath, t } from '@/lib/ui';
 
 export const gitConfig = {
   user: 'lubludrova',
@@ -11,9 +12,9 @@ export const gitConfig = {
 
 export function useBaseOptions(): BaseLayoutProps {
   const pathname = usePathname();
-  const segments = pathname.split('/').filter(Boolean);
-  // Default language (en) has no prefix in the URL; only `zh` is prefixed.
-  const lang = segments[0] === 'zh' ? 'zh' : 'en';
+  // Default language (en) has no prefix in the URL; every other language is
+  // prefixed (`/zh`, `/ru`, …).
+  const lang = getLangFromPath(pathname);
   const prefix = lang === 'en' ? '' : `/${lang}`;
 
   return {
@@ -22,7 +23,7 @@ export function useBaseOptions(): BaseLayoutProps {
     },
     links: [
       {
-        text: 'Map',
+        text: t(lang, 'nav.map'),
         url: `${prefix}/map`,
         type: 'main',
       },

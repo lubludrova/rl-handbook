@@ -8,9 +8,8 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   return (
     <HomeLayout
       {...useBaseOptions()}
-      // Replace the default language dropdown (which shows a "Choose a
-      // language" heading) with the square button whose menu lists the
-      // languages directly.
+      // Keep the language switcher consistent with the home page (square
+      // button, menu lists languages directly).
       slots={{ languageSelect: languageSelectSlot }}
     >
       {children}
