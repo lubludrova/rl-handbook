@@ -34,6 +34,7 @@ const texts: Record<Lang, {
   authorRole: string;
   acknowledgementsTitle: string;
   acknowledgementsText: string;
+  acknowledgementsSpecialThanks: string;
 }> = {
   en: {
     heroTitle: 'RL Handbook',
@@ -46,7 +47,8 @@ const texts: Record<Lang, {
     authorTitle: 'Author',
     authorRole: 'RL research @ Tsinghua University | ML & AI',
     acknowledgementsTitle: 'Acknowledgements',
-    acknowledgementsText: 'We thank all contributors who helped improve this handbook through feedback, corrections, and new material',
+    acknowledgementsText: 'Additionally, I thank all contributors who helped improve this handbook through feedback, corrections, and new material',
+    acknowledgementsSpecialThanks: 'I would like to thank Kyrie Cao who helped me directly with this project.',
   },
   zh: {
     heroTitle: 'RL手册',
@@ -59,7 +61,8 @@ const texts: Record<Lang, {
     authorTitle: '作者',
     authorRole: '清华大学 RL 研究 | ML & AI',
     acknowledgementsTitle: '致谢',
-    acknowledgementsText: '我们感谢所有通过反馈、纠正和提供新素材来帮助改进本手册的贡献者：',
+    acknowledgementsText: '此外，我感谢所有通过反馈、纠正和提供新素材来帮助改进本手册的贡献者：',
+    acknowledgementsSpecialThanks: '我要感谢曹坤鹏，他直接帮助了这个项目。',
   },
 };
 
@@ -432,6 +435,17 @@ export default function HomePage({ params: paramsPromise }: { params: Promise<{ 
           <SectionTitle>{t.acknowledgementsTitle}</SectionTitle>
           <p
             className="font-body"
+            style={{
+              fontSize: '1.05rem',
+              lineHeight: 1.8,
+              color: 'var(--color-fd-foreground)',
+              textWrap: 'pretty',
+            }}
+          >
+            {t.acknowledgementsSpecialThanks}
+          </p>
+          <p
+            className="font-body mt-4"
             style={{
               fontSize: '1.05rem',
               lineHeight: 1.8,
