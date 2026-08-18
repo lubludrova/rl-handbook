@@ -34,7 +34,8 @@ const texts: Record<Lang, {
   authorRole: string;
   acknowledgementsTitle: string;
   acknowledgementsText: string;
-  acknowledgementsSpecialThanks: string;
+  acknowledgementsSpecialThanksBefore: string;
+  acknowledgementsSpecialThanksAfter: string;
 }> = {
   en: {
     heroTitle: 'RL Handbook',
@@ -48,7 +49,8 @@ const texts: Record<Lang, {
     authorRole: 'RL research @ Tsinghua University | ML & AI',
     acknowledgementsTitle: 'Acknowledgements',
     acknowledgementsText: 'Additionally, I thank all contributors who helped improve this handbook through feedback, corrections, and new material',
-    acknowledgementsSpecialThanks: 'I would like to thank Kyrie Cao who helped me directly with this project.',
+    acknowledgementsSpecialThanksBefore: 'I would like to thank',
+    acknowledgementsSpecialThanksAfter: ' who helped me directly with this project.',
   },
   zh: {
     heroTitle: 'RL手册',
@@ -62,7 +64,8 @@ const texts: Record<Lang, {
     authorRole: '清华大学 RL 研究 | ML & AI',
     acknowledgementsTitle: '致谢',
     acknowledgementsText: '此外，我感谢所有通过反馈、纠正和提供新素材来帮助改进本手册的贡献者：',
-    acknowledgementsSpecialThanks: '我要感谢曹坤鹏，他直接帮助了这个项目。',
+    acknowledgementsSpecialThanksBefore: '我要感谢',
+    acknowledgementsSpecialThanksAfter: '，他直接帮助了这个项目。',
   },
 };
 
@@ -442,7 +445,17 @@ export default function HomePage({ params: paramsPromise }: { params: Promise<{ 
               textWrap: 'pretty',
             }}
           >
-            {t.acknowledgementsSpecialThanks}
+            {t.acknowledgementsSpecialThanksBefore}{' '}
+            <a
+              href="https://github.com/CaoKP"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline underline-offset-2 icon-link"
+              style={{ color: 'var(--color-fd-foreground)' }}
+            >
+              Kyrie Cao
+            </a>
+            {t.acknowledgementsSpecialThanksAfter}
           </p>
           <p
             className="font-body mt-4"
