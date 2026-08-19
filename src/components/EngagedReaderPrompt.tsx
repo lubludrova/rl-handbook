@@ -5,11 +5,10 @@ import { Star, X } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 const STORAGE_KEY = 'rl-handbook:engaged-reader-prompt:v1';
-const MIN_VISIBLE_MS = 2 * 60 * 1000;
+const MIN_VISIBLE_MS = 3 * 60 * 1000;
 const CHECK_INTERVAL_MS = 1000;
-const MIN_SCROLL_PROGRESS = 0.2;
-const SHOW_COOLDOWN_MS = 2 * 24 * 60 * 60 * 1000;
-const ACTION_COOLDOWN_MS = 120 * 24 * 60 * 60 * 1000;
+const SHOW_COOLDOWN_MS = 5 * 24 * 60 * 60 * 1000;
+const ACTION_COOLDOWN_MS = 30 * 24 * 60 * 60 * 1000;
 
 interface PromptState {
   lastShownAt?: number;
@@ -35,16 +34,10 @@ function writePromptState(nextState: PromptState) {
   }
 }
 
-function getScrollProgress() {
-  const maxScroll = document.documentElement.scrollHeight - window.innerHeight;
-  if (maxScroll <= 0) return 1;
-  return window.scrollY / maxScroll;
-}
-
 function isInCooldown(now: number) {
   const state = readPromptState();
   const lastActedAt = state.lastActedAt ?? 0;
-  const lastShownAt = state.lastShownAt ?? state.lastDismissedAt ?? 0;
+  const lastShownAt = Math.max(state.lastShownAt ?? 0, state.lastDismissedAt ?? 0);
 
   return (
     now - lastActedAt < ACTION_COOLDOWN_MS ||
@@ -72,7 +65,6 @@ export function EngagedReaderPrompt({ url, title }: { url: string; title: string
   const maybeShowPrompt = useCallback(() => {
     if (hasShownRef.current || document.visibilityState !== 'visible') return;
     if (activeVisibleMsRef.current < MIN_VISIBLE_MS) return;
-    if (getScrollProgress() < MIN_SCROLL_PROGRESS) return;
 
     hasShownRef.current = true;
     writePromptState({ lastShownAt: Date.now() });
@@ -82,31 +74,14 @@ export function EngagedReaderPrompt({ url, title }: { url: string; title: string
   useEffect(() => {
     if (isInCooldown(Date.now())) return;
 
-    let animationFrameId: number | null = null;
     const intervalId = window.setInterval(() => {
       if (document.visibilityState !== 'visible') return;
       activeVisibleMsRef.current += CHECK_INTERVAL_MS;
       maybeShowPrompt();
     }, CHECK_INTERVAL_MS);
 
-    const handleScroll = () => {
-      if (animationFrameId !== null) return;
-
-      animationFrameId = window.requestAnimationFrame(() => {
-        animationFrameId = null;
-        maybeShowPrompt();
-      });
-    };
-
-    window.addEventListener('scroll', handleScroll, { passive: true });
-
     return () => {
       window.clearInterval(intervalId);
-      window.removeEventListener('scroll', handleScroll);
-
-      if (animationFrameId !== null) {
-        window.cancelAnimationFrame(animationFrameId);
-      }
     };
   }, [maybeShowPrompt]);
 
