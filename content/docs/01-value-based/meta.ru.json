@@ -1,0 +1,13 @@
+{
+  "title": "Методы на основе ценности",
+  "defaultOpen": true,
+  "pages": [
+    "multi-armed-bandits",
+    "mdp",
+    "dynamic-programming",
+    "monte-carlo-and-temporal-difference",
+    "sarsa-and-q-learning",
+    "dqn",
+    "dqn-improvements"
+  ]
+}

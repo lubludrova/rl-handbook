@@ -1,0 +1,9 @@
+{
+  "title": "Model-based методы",
+  "defaultOpen": true,
+  "pages": [
+    "dyna-and-learned-models",
+    "model-predictive-control",
+    "alphazero-and-muzero"
+  ]
+}

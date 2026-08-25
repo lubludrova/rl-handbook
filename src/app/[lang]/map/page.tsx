@@ -24,6 +24,13 @@ const meta: Record<
     ogDescription:
       '精选的强化学习方法交互图谱，展示各方法如何互相衍生。',
   },
+  ru: {
+    title: 'Карта RL',
+    description:
+      'Интерактивная карта методов обучения с подкреплением, их связей и развития, а также фильтры для выбора подходящего алгоритма.',
+    ogDescription:
+      'Интерактивная карта методов обучения с подкреплением и их взаимосвязей.',
+  },
 };
 
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
@@ -36,7 +43,7 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
     openGraph: {
       title: m.title,
       description: m.ogDescription,
-      url: 'https://rl-handbook.com/map',
+      url: `https://rl-handbook.com${lang === 'en' ? '' : `/${lang}`}/map`,
     },
   };
 }

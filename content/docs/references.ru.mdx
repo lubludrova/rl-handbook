@@ -1,0 +1,105 @@
+---
+title: "Источники"
+description: "Книги, статьи, курсы, заметки и программные ресурсы, использованные при подготовке хэндбука."
+---
+
+На этой странице собраны материалы, использованные для написания и проверки глав руководства. Есть несколько отличных ресурсов, которые помогут вам стать лучше в RL.
+
+## Книги
+
+- **Саттон и Барто (2018).** [Richard S. Sutton and Andrew G. Barto, *Reinforcement Learning: An Introduction*, 2nd ed., MIT Press.](https://mitpress.mit.edu/9780262039246/reinforcement-learning/)
+Основополагающий учебник RL и основная справочная информация, лежащая в основе обозначений, примеров и описания основных базовых алгоритмов этого руководства.
+
+## Курсы, заметки и код
+
+- **ВачанВЫ.** [Reinforcement-Learning](https://github.com/VachanVY/Reinforcement-Learning#policy-iteration)
+Очень сильный ресурс по реализации с хорошим охватом основных алгоритмов: итерация политики, итерация значения, Монте-Карло, SARSA, Q-Learning, PPO, DDPG и SAC. Отлично подходит для проверки механики небольшого исполняемого кода.
+
+- **Школа данных Яндекса.** [Practical RL](https://github.com/yandexdataschool/Practical_RL)
+Открытый курс RL с лекциями, тетрадями для семинаров, материалами для домашних заданий и практическими упражнениями для Colab по классическому и глубокому RL.
+
+- **Тим Миллер.** [Mastering Reinforcement Learning: Markov Decision Processes](https://gibberblot.github.io/rl-notes/single-agent/MDPs.html)
+Четкие онлайн-заметки о MDP, политиках, уравнениях Беллмана, извлечении политики и частично наблюдаемых MDP, полезные в качестве второго объяснения основ.
+
+- **Бою А.И.** [Hands-on Reinforcement Learning](https://hrl.boyuai.com/)
+Практический ресурс в стиле курса с текстом глав, слайдами, видео и работоспособными ссылками на блокноты, переход от табличного RL к глубокому RL и избранным сложным темам.
+
+- **OpenAI набирает обороты.** [Spinning Up in Deep RL](https://spinningup.openai.com/en/latest/)
+Компактный справочник по глубокому RL с введением, ключевыми статьями, псевдокодом и примечаниями по реализации для градиентов политики, TRPO, PPO, DDPG, TD3 и SAC.
+
+- **АдитьяСК.** [The ultimate guide to RL environments: building and scaling them in the LLM era](https://huggingface.co/spaces/AdithyaSK/rl-environments-guide#introduction)
+Отличный ресурс для понимания сред RL: как их проектировать, масштабировать, оценивать и думать о них в современных установках RL, ориентированных на LLM.
+
+## Статьи
+
+- **Томпсон (1933).** [*On the Likelihood that One Unknown Probability Exceeds Another in View of the Evidence of Two Samples*.](https://doi.org/10.1093/biomet/25.3-4.285)
+Вводит выборку Томпсона: берет образец из значений задней части руки, а затем жадно действует под этим образцом. Используется в главе «Многорукие бандиты».
+
+- **Саттон (1988).** [*Learning to Predict by the Methods of Temporal Differences*.](https://doi.org/10.1007/BF00115009)
+Вводит обучение на основе временных различий: обновляет прогнозы на основе выборочных переходов при bootstrapping на основе текущих оценок. Используется в главе «Монте-Карло и прогнозирование временной разницы».
+
+- **Уоткинс и Даян (1992).** [*Q-learning*.](https://doi.org/10.1007/BF00992698)
+Представляет Q-Learning: off-policy TD-управление с жадной целью bootstrapping следующего состояния. Используется в главах Sarsa и Q-Learning.
+
+- **Ауэр и др. (2002).** [*Finite-time Analysis of the Multiarmed Bandit Problem*.](https://doi.org/10.1023/A:1013689704352)
+Представляет UCB1: оптимизм в условиях неопределенности с уменьшающимся бонусом доверия для недостаточно проверенного оружия. Используется в главе «Многорукие бандиты».
+
+- **Лин (1992).** [*Self-Improving Reactive Agents Based on Reinforcement Learning, Planning and Teaching*.](https://doi.org/10.1007/BF00992699)
+Вводит воспроизведение опыта: сохраняет прошлые переходы и тренируется на повторно используемых сэмплах. Используется в главе Deep Q-Networks.
+
+- **Мних и др. (2013).** [*Playing Atari with Deep Reinforcement Learning*.](https://arxiv.org/abs/1312.5602)
+Представляет DQN: глубокий Q-Learning из пикселей Atari с CNN и буфером воспроизведения. Используется в главе Deep Q-Networks.
+
+- **Мних и др. (2015).** [*Human-level control through deep reinforcement learning*.](https://doi.org/10.1038/nature14236)
+Представляет канонический рецепт DQN: повтор, целевые сети и широкую оценку Atari. Используется в главе Deep Q-Networks.
+
+- **ван Хасселт и др. (2016).** [*Deep Reinforcement Learning with Double Q-learning*.](https://arxiv.org/abs/1509.06461)
+Представляет Double DQN: отдельный выбор действия от оценки действия, чтобы уменьшить максимальную погрешность. Используется в главе «Улучшения DQN».
+
+- **Ван и др. (2016).** [*Dueling Network Architectures for Deep Reinforcement Learning*.](https://arxiv.org/abs/1511.06581)
+Представляет Dueling DQN: разделение Q-сети на потоки создания ценности и преимуществ. Используется в главе «Улучшения DQN».
+
+- **Шауль и др. (2016).** [*Prioritized Experience Replay*.](https://arxiv.org/abs/1511.05952)
+Вводит приоритетное воспроизведение опыта: чаще производите выборку переходов с высоким уровнем ошибок и корректируете смещение с помощью весов важности. Используется в главе «Улучшения DQN».
+
+- **Бельмар и др. (2017).** [*A Distributional Perspective on Reinforcement Learning*.](https://arxiv.org/abs/1707.06887)
+Вводит C51: изучите категориальное распределение доходности, а не только ожидаемую доходность. Используется в главе «Улучшения DQN».
+
+- **Фортунато и др. (2017).** [*Noisy Networks for Exploration*.](https://arxiv.org/abs/1706.10295)
+Представляет Noisy Nets: шум обученных параметров для исследования внутри сетей глубокого RL. Используется в главе «Улучшения DQN».
+
+- **Хессель и др. (2018).** [*Rainbow: Combining Improvements in Deep Reinforcement Learning*.](https://arxiv.org/abs/1710.02298)
+Представляет Rainbow: один агент DQN, сочетающий в себе Double DQN, PER, дуэльные сети, многошаговые цели, C51 и шумные сети. Используется в главе «Улучшения DQN».
+
+- **Уильямс (1992).** [*Simple Statistical Gradient-Following Algorithms for Connectionist Reinforcement Learning*.](https://doi.org/10.1007/BF00992696)
+Представляет REINFORCE: средство оценки отношения правдоподобия Монте-Карло для прямой оптимизации политики. Используется в главах «Градиент политики» и REINFORCE.
+
+- **Саттон и др. (1999).** [*Policy Gradient Methods for Reinforcement Learning with Function Approximation*.](https://papers.nips.cc/paper/1713-policy-gradient-methods-for-reinforcement-learning-with-function-approximation)
+Представляет теорему о градиенте политики: основу для оптимизации политики на основе градиента с аппроксимацией функции. Используется в главах «Градиент политики» и «REINFORCE».
+
+- **Шульман и др. (2015).** [*Trust Region Policy Optimization*.](https://arxiv.org/abs/1502.05477)
+Представляет TRPO: оптимизируйте суррогат местной политики, ограничивая при этом изменение политики за счет расхождения KL. Используется в главе TRPO.
+
+- **Шульман и др. (2016).** [*High-Dimensional Continuous Control Using Generalized Advantage Estimation*.](https://arxiv.org/abs/1506.02438)
+Представляет GAE: экспоненциально взвешенную систему оценки преимуществ, которая меняет смещение на дисперсию. Используется в главах TRPO и PPO.
+
+- **Мних и др. (2016).** [*Asynchronous Methods for Deep Reinforcement Learning*.](https://arxiv.org/abs/1602.01783)
+Представляет A3C: асинхронное обучение Actor-Critic со многими работниками параллельной среды. Используется в главах Actor-Critic, A2C и A3C.
+
+- **Шульман и др. (2017).** [*Proximal Policy Optimization Algorithms*.](https://arxiv.org/abs/1707.06347)
+Представляет PPO: урезанное обновление политики первого порядка, которое приближается к идее локального обновления TRPO. Используется в главе PPO.
+
+- **Сильвер и др. (2014).** [*Deterministic Policy Gradient Algorithms*.](https://proceedings.mlr.press/v32/silver14.html)
+Вводит детерминистические градиенты политики: обучайте непрерывного участника посредством дифференцируемого Q-критика. Используется в главе DDPG.
+
+- **Лилликрап и др. (2016).** [*Continuous control with deep reinforcement learning*.](https://arxiv.org/abs/1509.02971)
+Представляет DDPG: детерминированный актор, Q-критик, буфер воспроизведения и целевые сети для непрерывных действий. Используется в главе DDPG.
+
+- **Фудзимото и др. (2018).** [*Addressing Function Approximation Error in Actor-Critic Methods*.](https://arxiv.org/abs/1802.09477)
+Представляет TD3: обрезание двойных критиков, отложенное обновление акторов и сглаживание целевой политики для более стабильного шаблона DDPG. Используется в главах TD3 и SAC.
+
+- **Хаарноя и др. (2018).** [*Soft Actor-Critic: Off-Policy Maximum Entropy Deep Reinforcement Learning with a Stochastic Actor*.](https://arxiv.org/abs/1801.01290)
+Представляет SAC: стохастический off-policy Actor-Critic с целью достижения максимальной энтропии. Используется в главах TD3 и SAC.
+
+- **Хаарноя и др. (2018).** [*Soft Actor-Critic Algorithms and Applications*.](https://arxiv.org/abs/1812.05905)
+Представляет современный вариант SAC: автоматическую настройку энтропии-температуры и реализацию Twin-Q, используемую на практике. Используется в главах TD3 и SAC.

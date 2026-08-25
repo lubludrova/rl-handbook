@@ -721,6 +721,111 @@ const nodeZh: Record<string, { label?: string; blurb?: string }> = {
   },
 };
 
+const nodeRu: Record<string, { label?: string; blurb?: string }> = {
+  bandits: {
+    label: 'Бандиты',
+    blurb:
+      'Одно состояние и множество ручек: дилемма exploration–exploitation в чистом виде. С этого начинается хэндбук.',
+  },
+  mdp: {
+    blurb:
+      'Состояния, действия, награды и переходы: формализм, в котором описывается любой алгоритм RL. Центр карты.',
+  },
+  dp: {
+    label: 'Динамическое программирование',
+    blurb:
+      'Точное планирование при известной модели. Policy iteration и value iteration вводят обновление Беллмана, которое приближённо воспроизводят последующие методы.',
+  },
+  'mc-td': {
+    blurb:
+      'Отказываемся от модели и оцениваем ценности по собранному опыту. Monte Carlo ждёт полный return, а TD использует одношаговый bootstrap.',
+  },
+  sarsa: {
+    blurb:
+      'Одношаговый on-policy TD-контроль: bootstrap выполняется по следующему фактически выбранному действию, поэтому оценка учитывает цену exploration.',
+  },
+  'q-learning': {
+    blurb:
+      'Одношаговый off-policy TD-контроль: bootstrap выполняется по жадному следующему действию, хотя поведенческая политика может продолжать исследовать среду.',
+  },
+  dqn: {
+    blurb:
+      'Заменяет Q-таблицу нейросетью и стабилизирует off-policy bootstrap с помощью replay buffer и target network.',
+  },
+  'double-dqn': {
+    blurb:
+      'Online network выбирает следующее жадное действие, а target network оценивает его — это уменьшает завышение оценок из-за максимизации по шуму.',
+  },
+  dueling: {
+    blurb:
+      'Разделяет Q-значение на поток ценности состояния и поток преимущества действия, чтобы сеть отдельно учила качество состояния и различия между действиями.',
+  },
+  c51: {
+    blurb:
+      'Предсказывает категориальное распределение return вместо одного ожидаемого Q-значения и тем самым сохраняет больше информации в цели Беллмана.',
+  },
+  rainbow: {
+    blurb:
+      'Объединяет Double DQN, prioritized replay, dueling-архитектуру, многошаговые цели, Noisy Nets и C51. Главный вывод даёт абляция компонентов.',
+  },
+  reinforce: {
+    blurb:
+      'Базовый алгоритм градиента политики по Monte Carlo: логарифмическая вероятность выбранного действия увеличивается пропорционально return эпизода.',
+  },
+  a2c: {
+    blurb:
+      'Обучаемый critic оценивает bootstrap advantage и снижает дисперсию градиента политики; A3C собирает опыт асинхронно.',
+  },
+  trpo: {
+    blurb:
+      'Ограничивает обновление политики доверительной областью по KL-дивергенции, чтобы новая политика не уходила слишком далеко от собравшей данные.',
+  },
+  ppo: {
+    blurb:
+      'Приближает поведение trust region с помощью clipped surrogate objective, делая обновления политики простыми, устойчивыми и пригодными для нескольких эпох.',
+  },
+  ddpg: {
+    blurb:
+      'Off-policy actor-critic для непрерывных действий: детерминированный actor обучается по градиенту Q-функции critic на данных из replay buffer.',
+  },
+  td3: {
+    blurb:
+      'Сохраняет детерминированную политику DDPG, но добавляет два critic, отложенные обновления actor и сглаживание целевой политики.',
+  },
+  sac: {
+    blurb:
+      'Обучает стохастический off-policy actor с maximum-entropy objective: политика одновременно максимизирует награду и сохраняет полезную случайность действий.',
+  },
+  dyna: {
+    blurb:
+      'Учит модель по реальным переходам, а затем обновляет Q-learning на синтетическом опыте. Планирование и обучение используют одну функцию ценности.',
+  },
+  mpc: {
+    blurb:
+      'Оптимизирует в модели короткую последовательность действий, выполняет только первое и строит новый план из следующего состояния.',
+  },
+  mcts: {
+    blurb:
+      'Моделирует будущие переходы, строит дерево поиска из текущего состояния и выбирает действие по накопленной статистике дерева.',
+  },
+  alphazero: {
+    blurb:
+      'Запускает MCTS по точным правилам игры, направляя поиск сетью политики и ценности, обученной по результатам self-play.',
+  },
+  muzero: {
+    blurb:
+      'Сохраняет поисковый цикл AlphaZero, но заменяет известные правила обучаемой латентной моделью динамики.',
+  },
+  mbpo: {
+    blurb:
+      'Запускает короткие model rollouts из состояний replay buffer и передаёт их SAC, повышая sample efficiency при ограниченном model bias.',
+  },
+  dreamer: {
+    blurb:
+      'Учит компактную латентную world model и тренирует actor-critic на воображаемых траекториях, используя модель как среду обучения.',
+  },
+};
+
 const familyZh: Record<FamilyId, { label?: string; blurb?: string }> = {
   foundations: {
     label: '基础',
@@ -749,12 +854,48 @@ const familyZh: Record<FamilyId, { label?: string; blurb?: string }> = {
   },
 };
 
+const familyRu: Record<FamilyId, { label?: string; blurb?: string }> = {
+  foundations: {
+    label: 'Основы',
+    blurb:
+      'Идеи, на которых строятся остальные методы: exploration в бандитах, формализм MDP, планирование Беллмана и обучение ценностей по опыту.',
+  },
+  value: {
+    label: 'Value-based',
+    blurb:
+      'Оценить каждое действие, а затем выбирать лучшее: от табличного TD-контроля до глубоких Q-сетей, научившихся играть в Atari.',
+  },
+  policy: {
+    label: 'Policy-based',
+    blurb:
+      'Непосредственно оптимизировать параметризованную политику: REINFORCE, actor-critic, trust region и методы непрерывного управления.',
+  },
+  planning: {
+    label: 'Планирование при выборе действия',
+    blurb:
+      'Использовать модель при выборе следующего действия: смоделировать возможные будущие состояния, выполнить поиск или оптимизацию и следовать лучшему плану.',
+  },
+  background: {
+    label: 'Фоновое обучение',
+    blurb:
+      'Создавать синтетический опыт с помощью обучаемой модели и тренировать на воображаемых переходах функцию ценности или actor-critic.',
+  },
+};
+
 const regionZh: Record<string, string> = {
   'VALUE-BASED': 'VALUE-BASED',
   FOUNDATIONS: 'FOUNDATIONS',
   'POLICY-BASED': 'POLICY-BASED',
   'DECISION-TIME PLANNING': 'DECISION-TIME PLANNING',
   'BACKGROUND TRAINING': 'BACKGROUND TRAINING',
+};
+
+const regionRu: Record<string, string> = {
+  'VALUE-BASED': 'VALUE-BASED МЕТОДЫ',
+  FOUNDATIONS: 'ОСНОВЫ',
+  'POLICY-BASED': 'POLICY-BASED МЕТОДЫ',
+  'DECISION-TIME PLANNING': 'ПЛАНИРОВАНИЕ ПРИ ВЫБОРЕ ДЕЙСТВИЯ',
+  'BACKGROUND TRAINING': 'ФОНОВОЕ ОБУЧЕНИЕ',
 };
 
 /**
@@ -771,10 +912,13 @@ export function localize(lang: UILang) {
       nodeById: new Map(nodes.map((n) => [n.id, n])),
     };
   }
+  const nodeLocale = lang === 'ru' ? nodeRu : nodeZh;
+  const familyLocale = lang === 'ru' ? familyRu : familyZh;
+  const regionLocale = lang === 'ru' ? regionRu : regionZh;
   const lNodes = nodes.map((n) => ({
     ...n,
-    label: nodeZh[n.id]?.label ?? n.label,
-    blurb: nodeZh[n.id]?.blurb ?? n.blurb,
+    label: nodeLocale[n.id]?.label ?? n.label,
+    blurb: nodeLocale[n.id]?.blurb ?? n.blurb,
   }));
   const lNodeById = new Map(lNodes.map((n) => [n.id, n]));
   const lFamilyMeta = Object.fromEntries(
@@ -782,15 +926,14 @@ export function localize(lang: UILang) {
       k,
       {
         ...familyMeta[k],
-        label: familyZh[k]?.label ?? familyMeta[k].label,
-        blurb: familyZh[k]?.blurb ?? familyMeta[k].blurb,
+        label: familyLocale[k]?.label ?? familyMeta[k].label,
+        blurb: familyLocale[k]?.blurb ?? familyMeta[k].blurb,
       },
     ]),
   ) as Record<FamilyId, FamilyMeta>;
   const lRegions = regions.map((r) => ({
     ...r,
-    label: regionZh[r.label] ?? r.label,
+    label: regionLocale[r.label] ?? r.label,
   }));
   return { nodes: lNodes, familyMeta: lFamilyMeta, regions: lRegions, nodeById: lNodeById };
 }
-

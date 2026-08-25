@@ -1,0 +1,9 @@
+{
+  "title": "Введение",
+  "defaultOpen": true,
+  "pages": [
+    "introduction",
+    "what-is-reinforcement-learning",
+    "taxonomy"
+  ]
+}

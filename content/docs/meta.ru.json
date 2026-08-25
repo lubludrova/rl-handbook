@@ -1,0 +1,12 @@
+{
+  "title": "RL Handbook",
+  "pages": [
+    "00-introduction",
+    "01-value-based",
+    "02-on-policy-policy-based",
+    "03-off-policy-policy-based",
+    "04-model-based",
+    "05-advanced-topics",
+    "references"
+  ]
+}

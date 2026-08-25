@@ -27,6 +27,12 @@ export default function sitemap(): MetadataRoute.Sitemap {
       priority: 1,
     },
     {
+      url: `${siteUrl}/ru`,
+      lastModified,
+      changeFrequency: 'weekly',
+      priority: 1,
+    },
+    {
       url: `${siteUrl}/map`,
       lastModified,
       changeFrequency: 'monthly',
@@ -38,12 +44,19 @@ export default function sitemap(): MetadataRoute.Sitemap {
       changeFrequency: 'monthly',
       priority: 0.9,
     },
+    {
+      url: `${siteUrl}/ru/map`,
+      lastModified,
+      changeFrequency: 'monthly',
+      priority: 0.9,
+    },
   ];
 
-  // Add docs pages for both languages. `page.url` already includes the locale
+  // Add docs pages for every language. `page.url` already includes the locale
   // prefix for non-default languages (e.g. /zh/docs/...), so just append it.
   const enPages = source.getPages('en');
   const zhPages = source.getPages('zh');
+  const ruPages = source.getPages('ru');
 
   for (const page of enPages) {
     entries.push({
@@ -55,6 +68,15 @@ export default function sitemap(): MetadataRoute.Sitemap {
   }
 
   for (const page of zhPages) {
+    entries.push({
+      url: `${siteUrl}${page.url}`,
+      lastModified,
+      changeFrequency: 'weekly' as const,
+      priority: 0.8,
+    });
+  }
+
+  for (const page of ruPages) {
     entries.push({
       url: `${siteUrl}${page.url}`,
       lastModified,

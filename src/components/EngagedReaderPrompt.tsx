@@ -3,6 +3,8 @@
 import { getArticleFeedbackIssueUrl, githubRepoUrl } from '@/lib/feedback';
 import { Star, X } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { usePathname } from 'next/navigation';
+import { getLangFromPath, t } from '@/lib/ui';
 
 const STORAGE_KEY = 'rl-handbook:engaged-reader-prompt:v1';
 const MIN_VISIBLE_MS = 3 * 60 * 1000;
@@ -46,6 +48,8 @@ function isInCooldown(now: number) {
 }
 
 export function EngagedReaderPrompt({ url, title }: { url: string; title: string }) {
+  const pathname = usePathname();
+  const lang = getLangFromPath(pathname);
   const [isVisible, setIsVisible] = useState(false);
   const activeVisibleMsRef = useRef(0);
   const hasShownRef = useRef(false);
@@ -90,7 +94,7 @@ export function EngagedReaderPrompt({ url, title }: { url: string; title: string
   return (
     <aside
       aria-live="polite"
-      aria-label="Feedback request"
+      aria-label={t(lang, 'reader.aria')}
       className="fixed bottom-4 left-4 right-4 z-50 rounded-sm p-4 shadow-lg sm:left-auto sm:right-5 sm:max-w-sm"
       style={{
         border: '1px solid var(--color-fd-border)',
@@ -101,7 +105,7 @@ export function EngagedReaderPrompt({ url, title }: { url: string; title: string
       <button
         type="button"
         onClick={dismiss}
-        aria-label="Dismiss feedback request"
+        aria-label={t(lang, 'reader.dismiss')}
         className="absolute right-2 top-2 inline-flex h-8 w-8 items-center justify-center rounded-sm opacity-65 transition hover:opacity-100 focus-visible:outline-2 focus-visible:outline-offset-2"
         style={{ outlineColor: 'var(--color-fd-foreground)' }}
       >
@@ -110,13 +114,13 @@ export function EngagedReaderPrompt({ url, title }: { url: string; title: string
 
       <div className="pr-8">
         <p className="font-heading text-sm font-semibold">
-          Found this chapter useful?
+          {t(lang, 'reader.title')}
         </p>
         <p
           className="mt-1 font-body text-sm leading-6"
           style={{ color: 'var(--color-fd-muted-foreground)' }}
         >
-          A quick note or GitHub star helps improve this handbook.
+          {t(lang, 'reader.body')}
         </p>
       </div>
 
@@ -133,7 +137,7 @@ export function EngagedReaderPrompt({ url, title }: { url: string; title: string
             color: 'var(--color-fd-primary-foreground)',
           }}
         >
-          Send feedback
+          {t(lang, 'reader.feedback')}
         </a>
         <a
           href={githubRepoUrl}
@@ -148,7 +152,7 @@ export function EngagedReaderPrompt({ url, title }: { url: string; title: string
           }}
         >
           <Star aria-hidden="true" size={14} strokeWidth={1.8} />
-          Star
+          {t(lang, 'reader.star')}
         </a>
       </div>
     </aside>

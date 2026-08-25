@@ -19,7 +19,7 @@ export function ArticleFeedback({ url, title }: { url: string; title: string }) 
         setClicked(true);
         window.setTimeout(() => setClicked(false), 1200);
       }}
-      className="copy-btn inline-flex h-9 items-center gap-2 rounded-sm px-3 font-heading text-xs font-medium cursor-pointer"
+      className="copy-btn inline-flex h-9 shrink-0 items-center gap-2 whitespace-nowrap rounded-sm px-3 font-heading text-xs font-medium cursor-pointer"
       style={{
         color: clicked ? 'var(--color-fd-foreground)' : 'var(--color-fd-muted-foreground)',
         border: '1px solid var(--color-fd-border)',

@@ -1,13 +1,16 @@
 import { enDocs, meta } from 'collections/server';
-import { zhDocs } from 'collections/dynamic';
+import { ruDocs, zhDocs } from 'collections/dynamic';
 import { type InferPageType, loader, type StaticSource } from 'fumadocs-core/source';
 import { lucideIconsPlugin } from 'fumadocs-core/source/lucide-icons';
 import { i18n } from '@/lib/i18n';
 
-// English pages are compiled at build time (async chunks), Chinese pages are
-// compiled at runtime (dynamic collection). Both are merged into a single
-// source so the existing `source.getPage(slug, lang)` API keeps working.
-type PageData = (typeof enDocs)[number] | (typeof zhDocs)[number];
+// English pages are compiled at build time (async chunks); translated pages
+// are compiled at runtime (dynamic collections). All locales are merged into
+// one source so `source.getPage(slug, lang)` keeps working.
+type PageData =
+  | (typeof enDocs)[number]
+  | (typeof zhDocs)[number]
+  | (typeof ruDocs)[number];
 type MetaData = (typeof meta)[number];
 
 const files: StaticSource<{ pageData: PageData; metaData: MetaData }>['files'] = [
@@ -18,6 +21,12 @@ const files: StaticSource<{ pageData: PageData; metaData: MetaData }>['files'] =
     data: entry,
   })),
   ...zhDocs.map((entry) => ({
+    type: 'page' as const,
+    path: entry.info.path,
+    absolutePath: entry.info.fullPath,
+    data: entry,
+  })),
+  ...ruDocs.map((entry) => ({
     type: 'page' as const,
     path: entry.info.path,
     absolutePath: entry.info.fullPath,
@@ -73,7 +82,7 @@ export async function getLLMText(page: InferPageType<typeof source>) {
     return `# ${page.data.title}\n\n${processed}`;
   }
 
-  // Chinese pages are compiled at runtime without postprocessing, so
+  // Translated pages are compiled at runtime without postprocessing, so
   // `processed` markdown is unavailable — read the raw file instead (no
   // runtime MDX compilation involved).
   const raw = await page.data.getText('raw');

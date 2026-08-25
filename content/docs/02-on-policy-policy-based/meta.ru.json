@@ -1,0 +1,10 @@
+{
+  "title": "On-policy методы",
+  "defaultOpen": true,
+  "pages": [
+    "policy-gradient-and-reinforce",
+    "actor-critic-a2c-a3c",
+    "trpo",
+    "ppo"
+  ]
+}

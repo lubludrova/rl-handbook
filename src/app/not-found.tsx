@@ -1,6 +1,18 @@
+'use client';
+
 import Link from 'next/link';
+import { usePathname } from 'next/navigation';
+import { getLangFromPath } from '@/lib/ui';
 
 export default function NotFound() {
+  const lang = getLangFromPath(usePathname());
+  const prefix = lang === 'en' ? '' : `/${lang}`;
+  const text = lang === 'zh'
+    ? { message: '此页面不存在。', docs: '浏览文档', home: '返回首页' }
+    : lang === 'ru'
+      ? { message: 'Такой страницы не существует.', docs: 'Открыть хэндбук', home: 'На главную' }
+      : { message: 'This page does not exist.', docs: 'Browse Docs', home: 'Back to Home' };
+
   return (
     <div className="flex flex-col items-center justify-center min-h-[60vh] px-4 text-center">
       <h1
@@ -22,11 +34,11 @@ export default function NotFound() {
           color: 'var(--color-fd-muted-foreground)',
         }}
       >
-        This page does not exist.
+        {text.message}
       </p>
       <div className="mt-8 flex flex-col sm:flex-row gap-4">
         <Link
-          href="/docs"
+          href={`${prefix}/docs`}
           className="cta-btn inline-block font-heading font-semibold text-sm uppercase rounded-none px-8 py-3"
           style={{
             letterSpacing: '0.08em',
@@ -34,10 +46,10 @@ export default function NotFound() {
             color: 'var(--color-fd-primary-foreground)',
           }}
         >
-          Browse Docs
+          {text.docs}
         </Link>
         <Link
-          href="/"
+          href={prefix || '/'}
           className="icon-link inline-block font-heading font-semibold text-sm uppercase px-8 py-3"
           style={{
             letterSpacing: '0.08em',
@@ -45,7 +57,7 @@ export default function NotFound() {
             border: '1px solid var(--color-fd-border)',
           }}
         >
-          Back to Home
+          {text.home}
         </Link>
       </div>
     </div>
