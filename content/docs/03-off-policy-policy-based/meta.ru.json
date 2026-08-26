@@ -1,0 +1,9 @@
+{
+  "title": "Off-policy методы",
+  "defaultOpen": true,
+  "pages": [
+    "off-policy-policy-improvement-framework",
+    "ddpg",
+    "td3-and-sac"
+  ]
+}

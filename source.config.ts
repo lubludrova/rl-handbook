@@ -22,6 +22,14 @@ export const zhDocs = defineCollections({
   dynamic: true,
 });
 
+export const ruDocs = defineCollections({
+  type: 'doc',
+  dir: 'content/docs',
+  files: ['**/*.ru.mdx'],
+  schema: pageSchema,
+  dynamic: true,
+});
+
 export const meta = defineCollections({
   type: 'meta',
   dir: 'content/docs',

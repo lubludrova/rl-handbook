@@ -11,6 +11,7 @@ import {
 } from 'fumadocs-ui/components/ui/popover';
 import { useI18n } from 'fumadocs-ui/contexts/i18n';
 import { useTheme } from '@/lib/theme';
+import { getLangFromPath, t } from '@/lib/ui';
 import { twMerge } from 'tailwind-merge';
 
 // Compact square icon buttons matching fumadocs' ghost icon-button style so
@@ -36,11 +37,12 @@ export function LanguageButton({ className }: { className?: string }) {
   const { locale, locales } = useI18n();
   const router = useRouter();
   const pathname = usePathname();
+  const lang = getLangFromPath(pathname);
   const [pending, startTransition] = useTransition();
 
   const switchTo = (next: string) => {
     if (next === locale) return;
-    const stripped = pathname.replace(/^\/zh/, '') || '/';
+    const stripped = pathname.replace(/^\/(?:zh|ru)(?=\/|$)/, '') || '/';
     const target = next === 'en' ? stripped : `/${next}${stripped}`;
     startTransition(() => {
       router.push(target);
@@ -53,8 +55,8 @@ export function LanguageButton({ className }: { className?: string }) {
         <button
           type="button"
           className={twMerge(iconButton, className)}
-          aria-label="Choose a language"
-          title="Choose a language"
+          aria-label={t(lang, 'nav.chooseLanguage')}
+          title={t(lang, 'nav.chooseLanguage')}
         >
           {pending ? (
             <LoaderCircle className="animate-spin" />
@@ -91,6 +93,8 @@ export function LanguageButton({ className }: { className?: string }) {
  */
 export function ThemeButton({ className }: { className?: string }) {
   const { resolvedTheme, setTheme } = useTheme();
+  const pathname = usePathname();
+  const lang = getLangFromPath(pathname);
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
@@ -103,8 +107,8 @@ export function ThemeButton({ className }: { className?: string }) {
     <button
       type="button"
       className={twMerge(iconButton, className)}
-      aria-label="Toggle theme"
-      title="Toggle theme"
+      aria-label={t(lang, 'nav.toggleTheme')}
+      title={t(lang, 'nav.toggleTheme')}
       onClick={() => setTheme(isDark ? 'light' : 'dark')}
     >
       {isDark ? <Moon /> : <Sun />}

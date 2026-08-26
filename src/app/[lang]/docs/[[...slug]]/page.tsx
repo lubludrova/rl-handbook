@@ -83,16 +83,20 @@ export default async function Page(props: PageProps<'/[lang]/docs/[[...slug]]'>)
       full={page.data.full}
       breadcrumb={{ enabled: true, includePage: true }}
     >
-      <div className="relative">
-        <DocsTitle>{page.data.title}</DocsTitle>
-        <DocsDescription className="mb-0">{page.data.description}</DocsDescription>
+      <div className="grid grid-cols-1 gap-y-3 xl:grid-cols-[minmax(0,1fr)_auto] xl:gap-x-4">
+        <DocsTitle className="min-w-0 sm:row-start-2 xl:col-start-1 xl:row-start-1">
+          {page.data.title}
+        </DocsTitle>
+        <DocsDescription className="mb-0 sm:row-start-3 xl:col-span-2 xl:row-start-2">
+          {page.data.description}
+        </DocsDescription>
         <div
-          className="absolute top-0 right-0 hidden items-center gap-2 sm:flex"
+          className="hidden items-center justify-end gap-2 sm:flex sm:row-start-1 xl:col-start-2 xl:row-start-1 xl:justify-start"
           style={{ transform: 'translateY(-2px)' }}
         >
           <MarkdownCopyButton
             markdownUrl={`${page.url}.mdx`}
-            className="copy-btn inline-flex h-9 items-center gap-2 rounded-sm px-3 font-heading text-xs font-medium cursor-pointer"
+            className="copy-btn inline-flex h-9 shrink-0 items-center gap-2 whitespace-nowrap rounded-sm px-3 font-heading text-xs font-medium cursor-pointer"
             style={{
               color: 'var(--color-fd-muted-foreground)',
               border: '1px solid var(--color-fd-border)',
