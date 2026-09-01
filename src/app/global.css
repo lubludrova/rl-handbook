@@ -43,6 +43,17 @@ html {
   max-width: 100% !important;
 }
 
+/* ===== Block math: let wide formulas scroll instead of overflowing =====
+   KaTeX display math does not wrap and overflows the viewport on narrow
+   screens. Wrapping it in a horizontal scroll container keeps the whole
+   formula reachable on mobile. */
+.katex-display {
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-bottom: 0.25rem;
+  scrollbar-width: thin;
+}
+
 /* Hide ⌘K shortcut badges from search bar */
 #nd-nav [data-search-full] .ms-auto {
   display: none;
