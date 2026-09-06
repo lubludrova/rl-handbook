@@ -15,7 +15,7 @@ from torch import nn
 from torch.nn import functional as F
 
 
-GIF_PATH = pathlib.Path(__file__).parent.parent / "public" / "figures" / "chapter-1.6-dqn-cartpole-balance-demo.gif"
+GIF_PATH = pathlib.Path(__file__).parent / "figures" / "cartpole-demo.gif"
 
 
 class QNetwork(nn.Module):
