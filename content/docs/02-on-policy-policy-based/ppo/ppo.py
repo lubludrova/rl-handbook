@@ -1,9 +1,11 @@
 """PPO-Clip on CartPole-v1 with GAE.
 
 Proximal Policy Optimization (Schulman et al., 2017) with the clipped surrogate
-objective. Each iteration: collect rollout under pi_old, compute GAE, then K
+objective and an optional fixed-coefficient KL penalty. Each iteration: collect rollout under pi_old, compute GAE, then K
 minibatch epochs of SGD on the joint policy + value loss.
 """
+
+import math
 
 import gymnasium as gym
 import matplotlib.pyplot as plt
@@ -85,7 +87,10 @@ class PPO:
         max_grad_norm: float,
         n_epochs: int,
         minibatch_size: int,
+        kl_coef: float = 0.0,
     ) -> None:
+        if not math.isfinite(kl_coef) or kl_coef < 0:
+            raise ValueError("kl_coef must be finite and non-negative")
         self.policy = PolicyNet(state_dim, hidden_dim, n_actions)
         self.value = ValueNet(state_dim, hidden_dim)
         params = list(self.policy.parameters()) + list(self.value.parameters())
@@ -97,6 +102,7 @@ class PPO:
         self.max_grad_norm = max_grad_norm
         self.n_epochs = n_epochs
         self.minibatch_size = minibatch_size
+        self.kl_coef = kl_coef
 
     @torch.no_grad()
     def take_action(self, state: np.ndarray) -> tuple[int, float, float]:
@@ -114,17 +120,23 @@ class PPO:
         return float(self.value(s).item())
 
     def update(self, transition_dict: dict) -> dict[str, float]:
-        """K epochs of minibatch SGD on the clipped PPO objective."""
+        """Update immediately after collection, before any other policy changes.
+
+        The synchronous training loop lets us snapshot pi_old on rollout states
+        here. Keep this snapshot fixed across every minibatch and epoch.
+        """
         states = transition_dict["states"]
         actions = transition_dict["actions"]
         old_log_probs = transition_dict["old_log_probs"]
         returns = transition_dict["returns"]
         advantages = transition_dict["advantages"]
         advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
+        with torch.no_grad():
+            old_logits = self.policy(states).detach().clone()
 
         n = states.size(0)
         idx = np.arange(n)
-        stats = {"policy_loss": 0.0, "value_loss": 0.0, "entropy": 0.0}
+        stats = {"policy_loss": 0.0, "value_loss": 0.0, "entropy": 0.0, "kl": 0.0}
         n_updates = 0
 
         for _ in range(self.n_epochs):
@@ -136,6 +148,8 @@ class PPO:
                 dist = torch.distributions.Categorical(logits=logits)
                 new_log_probs = dist.log_prob(actions[mb])
                 entropy = dist.entropy().mean()
+                old_dist = torch.distributions.Categorical(logits=old_logits[mb])
+                kl = torch.distributions.kl_divergence(old_dist, dist).mean()
 
                 ratio = torch.exp(new_log_probs - old_log_probs[mb])
                 adv_mb = advantages[mb]
@@ -146,7 +160,8 @@ class PPO:
                 values_pred = self.value(states[mb])
                 value_loss = F.mse_loss(values_pred, returns[mb])
 
-                loss = policy_loss + self.value_coef * value_loss - self.entropy_coef * entropy
+                loss = (policy_loss + self.value_coef * value_loss
+                        - self.entropy_coef * entropy + self.kl_coef * kl)
                 self.optimizer.zero_grad()
                 loss.backward()
                 nn.utils.clip_grad_norm_(
@@ -158,6 +173,7 @@ class PPO:
                 stats["policy_loss"] += float(policy_loss.item())
                 stats["value_loss"] += float(value_loss.item())
                 stats["entropy"] += float(entropy.item())
+                stats["kl"] += float(kl.item())
                 n_updates += 1
 
         for k in stats:
@@ -303,6 +319,7 @@ if __name__ == "__main__":
     clip_eps = 0.2
     value_coef = 0.5
     entropy_coef = 0.0
+    kl_coef = 0.1  # Illustrative fixed beta, not a tuned or adaptive coefficient.
     max_grad_norm = 0.5
     lr = 3e-4
 
@@ -321,6 +338,7 @@ if __name__ == "__main__":
         max_grad_norm=max_grad_norm,
         n_epochs=n_epochs,
         minibatch_size=minibatch_size,
+        kl_coef=kl_coef,
     )
 
     print(f"Training PPO on {env_id} for {n_iterations} iterations "
