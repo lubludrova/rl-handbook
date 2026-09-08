@@ -35,7 +35,7 @@ export default async function Layout({
         // The desktop sidebar bottom row still renders these slots but is hidden
         // via CSS (see `global.css`) so it doesn't repeat. The home page is not
         // affected (shared `nav.children` is kept empty).
-        children: <ToggleBar className="hidden md:flex" />,
+        children: <ToggleBar key="toggle-bar" className="hidden md:flex" />,
       }}
       links={[
         {
