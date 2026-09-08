@@ -107,6 +107,10 @@ This evaluate-improve loop is more general than the clean policy-iteration algor
 
 This interaction is called **generalized policy iteration**. Full policy iteration separates the two processes into large blocks: evaluate, then improve. Later algorithms interleave them more tightly. Value iteration folds improvement into each value update; temporal-difference control methods eventually perform a similar evaluation-improvement interaction from sampled transitions rather than full model-based sweeps.
 
+The playground below runs this loop on a $4 \times 4$ miniature of the same Cliff Walking grid: identical dynamics and layout, shrunk so that one sweep is 13 backups instead of 37. *Single backup* applies one Bellman expectation backup to the next active state, *Full sweep* completes one evaluation sweep under the current policy, and *Improve policy* performs one greedy policy-improvement step. Click any cell to see the four action terms behind its update.
+
+<BellmanPlayground locale="en" />
+
 ## Value Iteration
 
 Policy iteration evaluates each intermediate policy before improving it. That is clean, but it can be wasteful: iterative policy evaluation may require many sweeps, and the policy being evaluated may be changed immediately afterward. The natural question is whether evaluation really has to converge before improvement happens.
