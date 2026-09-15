@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import katex from 'katex';
 import {
   ACTIVE_STATES,
   CLIFF,
@@ -135,6 +136,11 @@ type Locale = keyof typeof copy;
 const format = (value: number) => (Number.isFinite(value) ? value.toFixed(2) : '—');
 const formatCell = format;
 const formatProbability = (value: number) => (Number.isFinite(value) ? value.toFixed(2) : '—');
+
+function InlineMath({ tex }: { tex: string }) {
+  const html = useMemo(() => katex.renderToString(tex, { throwOnError: false }), [tex]);
+  return <span aria-label={tex} dangerouslySetInnerHTML={{ __html: html }} />;
+}
 
 function isCliff(index: number) {
   return CLIFF.includes(index);
@@ -298,7 +304,9 @@ export function BellmanPlayground({ locale }: { locale: 'en' | 'zh' }) {
                   <tbody>{detail.record.terms.map((term) => <tr key={term.action} className="border-t border-fd-border"><td className="px-1.5 py-2 text-sm font-medium" aria-label={t.action(term.action)}>{ACTIONS[term.action]}</td><td className="px-1.5 py-2 tabular-nums">{formatProbability(term.probability)}</td><td className="px-1.5 py-2 tabular-nums">{format(term.reward)}</td><td className="px-1.5 py-2 tabular-nums">{term.nextState}</td><td className="px-1.5 py-2 tabular-nums">{format(term.nextValue)}</td><td className="px-1.5 py-2 tabular-nums">{format(term.q)}</td><td className="px-1.5 py-2 tabular-nums">{format(term.contribution)}</td></tr>)}</tbody>
                 </table>
               </div>
-              <p className="mt-3 break-words font-mono text-xs leading-5 text-fd-muted-foreground">V({detail.record.state}) = Σ π(a|s)q(s,a) = {format(detail.record.oldValue)} → {format(detail.record.newValue)}</p>
+              <p className="mt-3 text-sm leading-6 text-fd-muted-foreground">
+                <InlineMath tex={`V(${detail.record.state}) = \\sum_a \\pi(a \\mid s)\\, q(s,a) = ${format(detail.record.newValue)}`} />
+              </p>
             </div>
           ) : (
             <p className="text-sm leading-6 text-fd-muted-foreground">{selected === GOAL ? t.terminalText : selected === START || !isCliff(selected) ? t.noTerms : t.cliffText}</p>
