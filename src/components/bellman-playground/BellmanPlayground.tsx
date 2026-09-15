@@ -69,17 +69,16 @@ const copy = {
     actual: 'Actual backup',
     preview: 'Preview backup',
     formula: 'Backup equation',
+    actionHeader: 'Action',
     probability: 'π',
-    reward: 'reward',
-    nextState: 'next state',
-    nextValue: 'next V',
+    reward: 'r',
+    nextState: 's′',
+    nextValue: 'V(s′)',
     q: 'q',
-    contribution: 'contribution',
+    contribution: 'π·q',
     noTerms: 'This state has no Bellman backup terms.',
     terminalText: 'GOAL is terminal: its value is fixed at 0 and no action is evaluated.',
     cliffText: 'CLIFF is terminal and unavailable to the active sweep.',
-    explanation:
-      'The grid is a synchronous snapshot: a sweep reads one frozen value table, then commits all 13 active-state updates. γ controls how much future value is retained; convergence uses the model threshold.',
     selectedLabel: (index: number) => `State ${index}`,
     cellLabel: (index: number, value: number, arrows: string) =>
       `State ${index}, value ${formatCell(value)}, current policy ${arrows || 'none'}`,
@@ -115,16 +114,16 @@ const copy = {
     actual: '实际备份',
     preview: '预览备份',
     formula: '备份公式',
+    actionHeader: '动作',
     probability: 'π',
-    reward: '奖励',
-    nextState: '下一状态',
-    nextValue: '下一 V',
+    reward: 'r',
+    nextState: 's′',
+    nextValue: 'V(s′)',
     q: 'q',
-    contribution: '贡献',
+    contribution: 'π·q',
     noTerms: '该状态没有贝尔曼备份项。',
     terminalText: '终点是终止状态：价值固定为 0，不评估动作。',
     cliffText: '悬崖是终止状态，不属于当前扫描的有效状态。',
-    explanation: '网格是同步快照：一次扫描读取冻结的价值表，再提交 13 个有效状态的更新。γ 控制保留多少未来价值；收敛使用模型阈值。',
     selectedLabel: (index: number) => `状态 ${index}`,
     cellLabel: (index: number, value: number, arrows: string) =>
       `状态 ${index}，价值 ${formatCell(value)}，当前策略 ${arrows || '无'}`,
@@ -133,10 +132,8 @@ const copy = {
 } as const;
 
 type Locale = keyof typeof copy;
-const format = (value: number) => (Number.isFinite(value) ? value.toFixed(3) : '—');
-// Grid cells are a scan-at-a-glance overview, so they drop a decimal the
-// detail table keeps for checking the Bellman sum by hand.
-const formatCell = (value: number) => (Number.isFinite(value) ? value.toFixed(2) : '—');
+const format = (value: number) => (Number.isFinite(value) ? value.toFixed(2) : '—');
+const formatCell = format;
 const formatProbability = (value: number) => (Number.isFinite(value) ? value.toFixed(2) : '—');
 
 function isCliff(index: number) {
@@ -232,7 +229,10 @@ export function BellmanPlayground({ locale }: { locale: 'en' | 'zh' }) {
             {Array.from({ length: GRID_SIZE }, (_, index) => {
               const kind = cellKind(index);
               const value = state.values[index] ?? 0;
-              const arrows = policyArrows(state.policy[index]);
+              // GOAL/CLIFF are terminal: no action is ever evaluated there, so
+              // showing a policy arrow would imply a preference that doesn't exist.
+              const showPolicy = kind === 'active' || kind === 'start';
+              const arrows = showPolicy ? policyArrows(state.policy[index]) : '';
               const isNext = index === nextCell;
               const isSelected = index === selected;
               const kindClass =
@@ -256,19 +256,20 @@ export function BellmanPlayground({ locale }: { locale: 'en' | 'zh' }) {
                     {kind === 'start' ? t.start : kind === 'goal' ? t.goal : kind === 'cliff' ? t.cliff : index}
                   </span>
                   <span className="mt-2 text-[clamp(0.82rem,2.5vw,1.2rem)] font-semibold tabular-nums">{formatCell(value)}</span>
-                  <span className="mt-1 min-h-5 text-xl leading-none" aria-hidden="true">{arrows || '·'}</span>
-                  <span className="sr-only">{arrows ? `${t.policy}: ${arrows}` : t.policy}</span>
+                  <span className="mt-1 min-h-5 text-xl leading-none" aria-hidden="true">{showPolicy ? arrows || '·' : ''}</span>
+                  {showPolicy && (
+                    <span className="sr-only">{arrows ? `${t.policy}: ${arrows}` : t.policy}</span>
+                  )}
                 </button>
               );
             })}
           </div>
-          <p className="mt-4 text-sm leading-6 text-fd-muted-foreground">{t.explanation}</p>
-          <div className="mt-4 flex flex-wrap gap-2" role="group" aria-label={t.title}>
+          <div className="mt-4 flex flex-wrap items-center gap-x-2 gap-y-3" role="group" aria-label={t.title}>
             <button type="button" className="rounded-md bg-fd-primary px-3 py-2 text-sm font-medium text-fd-primary-foreground hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fd-ring" onClick={runSingle}>{t.backup}</button>
             <button type="button" className="rounded-md border border-fd-border px-3 py-2 text-sm font-medium hover:bg-fd-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fd-ring" onClick={runSweep}>{state.cursor > 0 ? t.finishSweep : t.fullSweep}</button>
             <button type="button" className="rounded-md border border-fd-border px-3 py-2 text-sm font-medium hover:bg-fd-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fd-ring" onClick={runConvergence} disabled={state.converged} title={state.converged ? t.converged : undefined}>{t.converge}</button>
             <button type="button" className="rounded-md border border-fd-border px-3 py-2 text-sm font-medium hover:bg-fd-accent disabled:cursor-not-allowed disabled:opacity-45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fd-ring" onClick={runImprove} disabled={!state.converged || state.stable} title={!state.converged ? t.converged : state.stable ? t.stable : undefined}>{t.improve}</button>
-            <button type="button" className="rounded-md px-3 py-2 text-sm font-medium text-fd-muted-foreground hover:bg-fd-accent hover:text-fd-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fd-ring" onClick={reset}>{t.reset}</button>
+            <button type="button" className="ml-auto rounded-md px-3 py-2 text-sm font-medium text-fd-muted-foreground hover:bg-fd-accent hover:text-fd-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fd-ring" onClick={reset}>{t.reset}</button>
           </div>
         </div>
 
@@ -292,9 +293,9 @@ export function BellmanPlayground({ locale }: { locale: 'en' | 'zh' }) {
                 <span className="font-mono text-xs text-fd-muted-foreground">{format(detail.record.oldValue)} → {format(detail.record.newValue)}</span>
               </div>
               <div className="overflow-x-auto rounded border border-fd-border">
-                <table className="w-full min-w-[34rem] text-left text-xs">
-                  <thead className="bg-fd-accent/50 text-fd-muted-foreground"><tr><th className="px-2 py-2 font-medium">{t.action(0)}</th><th className="px-2 py-2 font-medium">{t.probability}</th><th className="px-2 py-2 font-medium">{t.reward}</th><th className="px-2 py-2 font-medium">{t.nextState}</th><th className="px-2 py-2 font-medium">{t.nextValue}</th><th className="px-2 py-2 font-medium">{t.q}</th><th className="px-2 py-2 font-medium">{t.contribution}</th></tr></thead>
-                  <tbody>{detail.record.terms.map((term) => <tr key={term.action} className="border-t border-fd-border"><td className="px-2 py-2 font-medium">{ACTIONS[term.action]} {t.action(term.action)}</td><td className="px-2 py-2 tabular-nums">{formatProbability(term.probability)}</td><td className="px-2 py-2 tabular-nums">{format(term.reward)}</td><td className="px-2 py-2 tabular-nums">{term.nextState}</td><td className="px-2 py-2 tabular-nums">{format(term.nextValue)}</td><td className="px-2 py-2 tabular-nums">{format(term.q)}</td><td className="px-2 py-2 tabular-nums">{format(term.contribution)}</td></tr>)}</tbody>
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-fd-accent/50 text-fd-muted-foreground"><tr><th className="px-1.5 py-2 font-medium">{t.actionHeader}</th><th className="px-1.5 py-2 font-medium">{t.probability}</th><th className="px-1.5 py-2 font-medium">{t.reward}</th><th className="px-1.5 py-2 font-medium">{t.nextState}</th><th className="px-1.5 py-2 font-medium">{t.nextValue}</th><th className="px-1.5 py-2 font-medium">{t.q}</th><th className="px-1.5 py-2 font-medium">{t.contribution}</th></tr></thead>
+                  <tbody>{detail.record.terms.map((term) => <tr key={term.action} className="border-t border-fd-border"><td className="px-1.5 py-2 text-sm font-medium" aria-label={t.action(term.action)}>{ACTIONS[term.action]}</td><td className="px-1.5 py-2 tabular-nums">{formatProbability(term.probability)}</td><td className="px-1.5 py-2 tabular-nums">{format(term.reward)}</td><td className="px-1.5 py-2 tabular-nums">{term.nextState}</td><td className="px-1.5 py-2 tabular-nums">{format(term.nextValue)}</td><td className="px-1.5 py-2 tabular-nums">{format(term.q)}</td><td className="px-1.5 py-2 tabular-nums">{format(term.contribution)}</td></tr>)}</tbody>
                 </table>
               </div>
               <p className="mt-3 break-words font-mono text-xs leading-5 text-fd-muted-foreground">V({detail.record.state}) = Σ π(a|s)q(s,a) = {format(detail.record.oldValue)} → {format(detail.record.newValue)}</p>
