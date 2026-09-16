@@ -109,6 +109,8 @@ This interaction is called **generalized policy iteration**. Full policy iterati
 
 The playground below runs this loop on a $4 \times 4$ miniature of the same Cliff Walking grid: identical dynamics and layout, shrunk so that one sweep is 13 backups instead of 37. *Single backup* applies one Bellman expectation backup to the next active state, *Full sweep* completes one evaluation sweep under the current policy, and *Improve policy* performs one greedy policy-improvement step. Click any cell to see the four action terms behind its update.
 
+The grid is a synchronous snapshot: a sweep reads one frozen value table, then commits all 13 active-state updates. γ controls how much future value is retained; convergence uses the model's threshold.
+
 <BellmanPlayground locale="en" />
 
 ## Value Iteration
