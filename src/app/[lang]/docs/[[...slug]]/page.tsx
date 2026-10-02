@@ -81,6 +81,7 @@ export default async function Page(props: PageProps<'/[lang]/docs/[[...slug]]'>)
     <DocsPage
       toc={toc}
       full={page.data.full}
+      tableOfContent={{ enabled: !page.data.full && toc.length > 0 }}
       breadcrumb={{ enabled: true, includePage: true }}
     >
       <div className="grid grid-cols-1 gap-y-3 xl:grid-cols-[minmax(0,1fr)_auto] xl:gap-x-4">

@@ -61,6 +61,29 @@ html {
 
 /* ===== Docs layout ===== */
 
+#nd-docs-layout {
+  --rlh-article-width: 900px;
+  /* Keep the main column as wide as the article. The grid already accounts
+     for the visible sidebar width through --fd-sidebar-col. */
+  --fd-layout-width: calc(var(--fd-sidebar-width) + var(--rlh-article-width) + var(--fd-toc-width));
+}
+
+#nd-page {
+  max-width: var(--rlh-article-width);
+}
+
+@media (min-width: 1280px) {
+  #nd-docs-layout:has(#nd-toc) {
+    --fd-toc-width: 240px;
+  }
+}
+
+@media (min-width: 1600px) {
+  #nd-docs-layout {
+    --rlh-article-width: 1120px;
+  }
+}
+
 /* ===== Landing page styles ===== */
 
 .landing-page {
