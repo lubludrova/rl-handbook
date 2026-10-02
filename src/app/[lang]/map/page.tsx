@@ -1,9 +1,14 @@
 import type { Metadata } from 'next';
 import { AlgorithmMap } from '@/components/map/AlgorithmMap';
 import { getLangFromPath, type UILang } from '@/lib/ui';
+import { i18n } from '@/lib/i18n';
 
 interface PageProps {
   params: Promise<{ lang: string }>;
+}
+
+export function generateStaticParams() {
+  return i18n.languages.map((lang) => ({ lang }));
 }
 
 const meta: Record<

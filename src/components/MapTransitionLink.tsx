@@ -1,7 +1,8 @@
 'use client';
 
+import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { VIEW_H, VIEW_W } from './map/map-data';
 import { MapMorphOverlay } from './MapMorphOverlay';
 import { getLangFromPath, t } from '@/lib/ui';
@@ -25,14 +26,10 @@ export function MapTransitionLink() {
   const lang = getLangFromPath(pathname);
   const mapUrl = lang === 'en' ? '/map' : `/${lang}/map`;
 
-  useEffect(() => {
-    router.prefetch(mapUrl);
-  }, [router, mapUrl]);
-
   const handleNavigate = useCallback(() => {
     if (navedRef.current) return;
     navedRef.current = true;
-    router.push(`${mapUrl}?warp=1`);
+    router.push(mapUrl);
   }, [router, mapUrl]);
 
   function openMap(event: React.MouseEvent<HTMLAnchorElement>) {
@@ -57,8 +54,9 @@ export function MapTransitionLink() {
 
   return (
     <>
-      <a
+      <Link
         href={mapUrl}
+        prefetch={true}
         onClick={openMap}
         aria-label={t(lang, 'map.aria')}
         aria-disabled={morphing}
@@ -69,7 +67,7 @@ export function MapTransitionLink() {
         }}
       >
         {morphing ? t(lang, 'map.entering') : t(lang, 'map.orExplore')}
-      </a>
+      </Link>
 
       {morphing && (
         <MapMorphOverlay restView={restView} isMobile={isMobile} onNavigate={handleNavigate} />
