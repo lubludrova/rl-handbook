@@ -63,6 +63,31 @@ const config = {
       },
     ];
   },
+  async redirects() {
+    // Keep links to the retired Russian translation pointing to English.
+    return [
+      {
+        source: '/ru',
+        destination: '/',
+        permanent: true,
+      },
+      {
+        source: '/ru/:path+',
+        destination: '/:path+',
+        permanent: true,
+      },
+      {
+        source: '/llms.mdx/docs/ru/:path*',
+        destination: '/llms.mdx/docs/en/:path*',
+        permanent: true,
+      },
+      {
+        source: '/og/docs/ru/:path*',
+        destination: '/og/docs/en/:path*',
+        permanent: true,
+      },
+    ];
+  },
   async rewrites() {
     return [
       {

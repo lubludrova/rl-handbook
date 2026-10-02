@@ -42,7 +42,7 @@ export function LanguageButton({ className }: { className?: string }) {
 
   const switchTo = (next: string) => {
     if (next === locale) return;
-    const stripped = pathname.replace(/^\/(?:zh|ru)(?=\/|$)/, '') || '/';
+    const stripped = pathname.replace(/^\/zh(?=\/|$)/, '') || '/';
     const target = next === 'en' ? stripped : `/${next}${stripped}`;
     startTransition(() => {
       router.push(target);

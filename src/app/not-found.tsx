@@ -9,9 +9,7 @@ export default function NotFound() {
   const prefix = lang === 'en' ? '' : `/${lang}`;
   const text = lang === 'zh'
     ? { message: '此页面不存在。', docs: '浏览文档', home: '返回首页' }
-    : lang === 'ru'
-      ? { message: 'Такой страницы не существует.', docs: 'Открыть хэндбук', home: 'На главную' }
-      : { message: 'This page does not exist.', docs: 'Browse Docs', home: 'Back to Home' };
+    : { message: 'This page does not exist.', docs: 'Browse Docs', home: 'Back to Home' };
 
   return (
     <div className="flex flex-col items-center justify-center min-h-[60vh] px-4 text-center">

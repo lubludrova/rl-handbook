@@ -76,24 +76,6 @@ const texts: Record<Lang, {
     emailLabel: '邮箱',
     contributorsLabel: '贡献者',
   },
-  ru: {
-    heroTitle: 'RL Handbook',
-    heroSubtitle: 'Полное руководство по обучению с подкреплением',
-    cta: 'Начать',
-    ctaAria: 'Открыть RL Handbook',
-    abstractTitle: 'Аннотация',
-    abstractText: 'Этот хэндбук — современное и подробное руководство по обучению с подкреплением и последовательному принятию решений. Изложение начинается с многоруких бандитов и марковских процессов принятия решений, а затем переходит к value-based методам, градиентам политики, архитектурам actor-critic и model-based подходам. Среди продвинутых тем — обучение по демонстрациям, offline RL, исследование среды на основе любопытства и многоагентные системы. Математическая строгость сочетается с запускаемыми примерами кода. Хэндбук задуман как открытый и постоянно обновляемый ресурс для студентов, исследователей и инженеров, которые изучают RL или уже работают в этой области.',
-    chapterContentsTitle: 'Содержание',
-    comingSoon: 'Скоро',
-    authorTitle: 'Автор',
-    authorRole: 'RL research @ Tsinghua University | ML & AI',
-    acknowledgementsTitle: 'Благодарности',
-    acknowledgementsText: 'Также благодарю всех, кто помог улучшить хэндбук отзывами, исправлениями и новыми материалами:',
-    acknowledgementsSpecialThanksBefore: 'Отдельная благодарность',
-    acknowledgementsSpecialThanksAfter: ' за непосредственную помощь в работе над проектом.',
-    emailLabel: 'Почта',
-    contributorsLabel: 'участникам проекта',
-  },
 };
 
 const chaptersEn: {
@@ -235,80 +217,13 @@ const chaptersZh: typeof chaptersEn = [
   },
 ];
 
-const chaptersRu: typeof chaptersEn = [
-  {
-    title: 'Введение',
-    slug: '00-introduction',
-    pages: [
-      { title: 'Введение', slug: 'introduction' },
-      { title: 'Что такое обучение с подкреплением?', slug: 'what-is-reinforcement-learning' },
-      { title: 'Таксономия методов RL', slug: 'taxonomy' },
-    ],
-  },
-  {
-    title: 'Value-based методы',
-    slug: '01-value-based',
-    pages: [
-      { title: 'Многорукие бандиты', slug: 'multi-armed-bandits' },
-      { title: 'Марковские процессы принятия решений', slug: 'mdp' },
-      { title: 'Динамическое программирование', slug: 'dynamic-programming' },
-      { title: 'Методы Монте-Карло и временных различий', slug: 'monte-carlo-and-temporal-difference' },
-      { title: 'Sarsa и Q-learning', slug: 'sarsa-and-q-learning' },
-      { title: 'Глубокие Q-сети', slug: 'dqn' },
-      { title: 'Улучшения DQN', slug: 'dqn-improvements' },
-    ],
-  },
-  {
-    title: 'On-policy методы',
-    slug: '02-on-policy-policy-based',
-    pages: [
-      { title: 'Градиент политики и REINFORCE', slug: 'policy-gradient-and-reinforce' },
-      { title: 'Actor-Critic, A2C и A3C', slug: 'actor-critic-a2c-a3c' },
-      { title: 'TRPO', slug: 'trpo' },
-      { title: 'PPO', slug: 'ppo' },
-    ],
-  },
-  {
-    title: 'Off-policy методы',
-    slug: '03-off-policy-policy-based',
-    pages: [
-      { title: 'Общий фреймворк off-policy методов', slug: 'off-policy-policy-improvement-framework' },
-      { title: 'DDPG', slug: 'ddpg' },
-      { title: 'TD3 и SAC', slug: 'td3-and-sac' },
-    ],
-  },
-  {
-    title: 'Model-based методы',
-    slug: '04-model-based',
-    comingSoon: true,
-    pages: [
-      { title: 'Dyna и обучаемые модели', slug: 'dyna-and-learned-models' },
-      { title: 'Model Predictive Control', slug: 'model-predictive-control' },
-      { title: 'AlphaZero и MuZero', slug: 'alphazero-and-muzero' },
-    ],
-  },
-  {
-    title: 'Продвинутые темы',
-    slug: '05-advanced-topics',
-    comingSoon: true,
-    pages: [
-      { title: 'RLHF и языковые модели', slug: 'rl-sequence-generation-and-rlhf' },
-      { title: 'Обучение по демонстрациям', slug: 'imitation-learning' },
-      { title: 'Offline RL', slug: 'offline-rl' },
-      { title: 'Исследование среды', slug: 'exploration' },
-      { title: 'Goal-conditioned RL', slug: 'goal-conditioned-rl' },
-      { title: 'Многоагентное RL', slug: 'multi-agent-rl' },
-    ],
-  },
-];
-
 export default function HomePage({ params: paramsPromise }: { params: Promise<{ lang: string }> }) {
   const params = use(paramsPromise);
   const lang = getLangFromPath('/' + params.lang) as Lang;
   const t = texts[lang];
-  const chapters = lang === 'zh' ? chaptersZh : lang === 'ru' ? chaptersRu : chaptersEn;
+  const chapters = lang === 'zh' ? chaptersZh : chaptersEn;
   // Default language (en) has no prefix in the URL; every other language is
-  // prefixed with its language code (`/zh`, `/ru`, …).
+  // prefixed with its language code (`/zh`).
   const prefix = lang === 'en' ? '' : `/${lang}`;
 
   return (

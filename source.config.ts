@@ -6,7 +6,7 @@ import rehypeKatex from 'rehype-katex';
 export const enDocs = defineCollections({
   type: 'doc',
   dir: 'content/docs',
-  files: ['**/*.mdx', '!**/*.zh.mdx', '!**/*.ru.mdx'],
+  files: ['**/*.mdx', '!**/*.zh.mdx'],
   schema: pageSchema,
   async: true,
   postprocess: {
@@ -18,14 +18,6 @@ export const zhDocs = defineCollections({
   type: 'doc',
   dir: 'content/docs',
   files: ['**/*.zh.mdx'],
-  schema: pageSchema,
-  dynamic: true,
-});
-
-export const ruDocs = defineCollections({
-  type: 'doc',
-  dir: 'content/docs',
-  files: ['**/*.ru.mdx'],
   schema: pageSchema,
   dynamic: true,
 });

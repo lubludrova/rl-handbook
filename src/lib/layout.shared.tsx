@@ -13,7 +13,7 @@ export const gitConfig = {
 export function useBaseOptions(): BaseLayoutProps {
   const pathname = usePathname();
   // Default language (en) has no prefix in the URL; every other language is
-  // prefixed (`/zh`, `/ru`, …).
+  // prefixed (`/zh`).
   const lang = getLangFromPath(pathname);
   const prefix = lang === 'en' ? '' : `/${lang}`;
 

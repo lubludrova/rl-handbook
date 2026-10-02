@@ -21,7 +21,7 @@ export function MapTransitionLink() {
   const navedRef = useRef(false);
 
   // Resolve the active language from the pathname. Default language (en) has
-  // no prefix in the URL; every other language is prefixed (`/zh`, `/ru`, …).
+  // no prefix in the URL; every other language is prefixed (`/zh`).
   const lang = getLangFromPath(pathname);
   const mapUrl = lang === 'en' ? '/map' : `/${lang}/map`;
 

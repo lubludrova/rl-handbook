@@ -1,5 +1,5 @@
 import { enDocs, meta } from 'collections/server';
-import { ruDocs, zhDocs } from 'collections/dynamic';
+import { zhDocs } from 'collections/dynamic';
 import { type InferPageType, loader, type StaticSource } from 'fumadocs-core/source';
 import { lucideIconsPlugin } from 'fumadocs-core/source/lucide-icons';
 import { i18n } from '@/lib/i18n';
@@ -7,10 +7,7 @@ import { i18n } from '@/lib/i18n';
 // English pages are compiled at build time (async chunks); translated pages
 // are compiled at runtime (dynamic collections). All locales are merged into
 // one source so `source.getPage(slug, lang)` keeps working.
-type PageData =
-  | (typeof enDocs)[number]
-  | (typeof zhDocs)[number]
-  | (typeof ruDocs)[number];
+type PageData = (typeof enDocs)[number] | (typeof zhDocs)[number];
 type MetaData = (typeof meta)[number];
 
 const files: StaticSource<{ pageData: PageData; metaData: MetaData }>['files'] = [
@@ -21,12 +18,6 @@ const files: StaticSource<{ pageData: PageData; metaData: MetaData }>['files'] =
     data: entry,
   })),
   ...zhDocs.map((entry) => ({
-    type: 'page' as const,
-    path: entry.info.path,
-    absolutePath: entry.info.fullPath,
-    data: entry,
-  })),
-  ...ruDocs.map((entry) => ({
     type: 'page' as const,
     path: entry.info.path,
     absolutePath: entry.info.fullPath,

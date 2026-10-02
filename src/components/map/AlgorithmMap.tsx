@@ -261,7 +261,7 @@ export function AlgorithmMap() {
 
   // Resolve the active language from the URL so chapter links point at the
   // correct locale and the labels/UI text are localized. The default language
-  // (en) has no prefix; every other language is prefixed (`/zh`, `/ru`, …).
+  // (en) has no prefix; every other language is prefixed (`/zh`).
   const pathname = usePathname();
   const lang = getLangFromPath(pathname);
   // Shadow the module-level English data with a fully-localized snapshot so
