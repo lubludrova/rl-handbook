@@ -128,11 +128,13 @@ const chaptersEn: {
   {
     title: 'Model-Based',
     slug: '04-model-based',
-    comingSoon: true,
     pages: [
+      { title: 'Model-Based RL Framework', slug: 'model-based-rl-framework' },
       { title: 'Dyna and Learned Models', slug: 'dyna-and-learned-models' },
       { title: 'Model Predictive Control', slug: 'model-predictive-control' },
-      { title: 'AlphaZero and MuZero', slug: 'alphazero-and-muzero' },
+      { title: 'Tree Search: From MCTS to MuZero', slug: 'alphazero-and-muzero' },
+      { title: 'Latent Model-Based RL', slug: 'latent-model-based-rl' },
+      { title: 'Offline Model-Based RL', slug: 'offline-model-based-rl' },
     ],
   },
   {
