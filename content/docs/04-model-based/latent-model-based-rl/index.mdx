@@ -1,0 +1,160 @@
+---
+title: Latent Model-Based RL
+description: From camera observations to PlaNet planning, Dreamer imagination, TD-MPC, image generation and video pretraining.
+---
+
+> **Abstract.** An image is an observation, not necessarily a complete control state. Learned internal states can retain history and make prediction manageable. PlaNet plans in this representation, Dreamer trains behavior in imagined trajectories, and TD-MPC combines short latent planning with learned values. DIAMOND and APV illustrate other choices about what to predict and where to obtain training data.
+
+The [framework chapter](/docs/04-model-based/model-based-rl-framework) separated how an agent uses a model from what the model represents. This distinction matters here. **Latent** means a learned internal state; it does not specify whether the agent plans while acting or learns an actor in the background.
+
+## Why the Latest Image May Not Be Enough
+
+Two camera frames can show a cart at the same position while it moves in opposite directions. The correct braking action depends on velocity. Several frames and previous actions can help infer it, even when velocity is not supplied as a numeric observation.
+
+The model therefore needs more than image compression. Its internal state should retain history relevant to predicting rewards and action consequences. The coordinates of this learned state need not correspond to named physical quantities.
+
+Three representations illustrate the choices:
+
+| Representation | What the transition predictor produces | Example |
+|---|---|---|
+| Supplied state variables | Next position, velocity, or another explicit state | PETS |
+| Learned latent state | Next internal state used for prediction and control | PlaNet, Dreamer, TD-MPC |
+| Observation space | A future image or other observation | DIAMOND |
+
+These are teaching categories. A single system can contain latent computations as well as an image decoder. The question is what role the representation plays in the model's predictions, rather than whether its neural network has hidden layers.
+
+## PlaNet: Infer a Belief, Then Plan
+
+<ModelFlow steps={["Read images and action history","Infer the current latent belief","Search predicted latent futures","Execute the first planned action"]} caption="The learned state is a workspace for decision-time planning." />
+
+PlaNet combines deterministic recurrent memory $h_t$ with a stochastic latent state $z_t$. One observed step has two stages:
+
+$$
+h_t=f_\phi(h_{t-1},z_{t-1},a_{t-1}),
+$$
+
+$$
+z_t\sim q_\phi(z_t\mid h_t,o_t).
+$$
+
+First update memory from the previous state and action. Then use the new image $o_t$ to infer the current latent state. The inference distribution $q_\phi$ is often called a posterior. During imagination the future image is unavailable, so the transition prior $p_\phi(z_t\mid h_t)$ supplies predicted latent states instead.
+
+The model learns observation and reward predictions, together with a consistency term that brings the prior toward observation-informed inference. A compact one-step teaching objective is:
+
+$$
+L_{\mathrm{model}}=L_{\mathrm{prediction}}+\beta D_{\mathrm{KL}}(q_\phi\Vert p_\phi).
+$$
+
+The first part penalizes poor predictions; the second helps imagination remain consistent with what was inferred from actual images. KL compares distributions, and $\beta$ weights that comparison. The paper also studies latent overshooting; this expression is not the entire implementation.
+
+After inference, PlaNet tries action sequences through predicted hidden states, sums their predicted rewards, and searches with CEM. It executes only the first action and corrects its belief with the next real image. Pixels teach the representation during training, but candidate planning does not need to reconstruct every future frame.
+
+**PlaNet is still a decision-time planner.** The latent representation changes where planning happens, not whether it happens.
+
+## Dreamer: Turn Imagination into an Actor-Critic
+
+<ModelFlow steps={["Infer a latent starting state","Imagine actions and outcomes","Train actor and critic","Act with the trained actor"]} caption="Imagined practice teaches behavior rather than replacing each action with a new search." />
+
+Once a latent model can generate future states and rewards, another use is to practise behavior there. Dreamer trains an actor and critic on imagined trajectories rather than solving a new action-sequence search at each real step.
+
+Follow one learning cycle:
+
+1. Learn the world model from recorded real experience.
+2. Infer a latent starting state from that experience.
+3. Let the actor choose imagined actions and let the model predict their consequences.
+4. Train the critic from imagined return targets and improve the actor.
+5. Act in reality using the current inferred state and actor; add the new experience to replay.
+
+The agent still updates its latent state from new observations while acting. “No planning loop” does not mean that the world model has no role in state inference.
+
+### Build a Return Target One Piece at a Time
+
+A critic summarizes rewards beyond an explicit rollout. A λ-return blends this short estimate with a longer imagined return. In consistent transition-indexed teaching notation:
+
+$$
+B_t=(1-\lambda)v_\psi(s_{t+1})+\lambda R_{t+1}^{\lambda},
+$$
+
+$$
+R_t^{\lambda}=\hat r_t+\gamma\hat c_t B_t.
+$$
+
+The coefficient $\lambda$ mixes the next critic estimate and next λ-return. Predicted continuation $\hat c_t$ reduces future value when an episode is expected to end. With $\lambda=0.5$, next value 4 and next return 8, the mixture is 6. With current reward 1, $\gamma=0.9$ and continuation 1, the target is 6.4.
+
+### Keep the Dreamer Versions Distinct
+
+DreamerV1 differentiates imagined return through dynamics to improve its actor. DreamerV2 supports different behavior-gradient estimators, including score-function and dynamics-gradient components. The standard DreamerV3 actor uses an advantage-weighted score-function update with return normalization and entropy regularization.
+
+For the V3 intuition, define:
+
+$$
+A_t=R_t^\lambda-v_\psi(s_t).
+$$
+
+Return 8 minus baseline 5 gives positive advantage 3: make that sampled action more likely. In the actor surrogate the normalized advantage is treated as a fixed weight, rather than differentiating it through the dynamics. A schematic expression is:
+
+$$
+L_\pi=-\mathbb E[\operatorname{sg}(\bar A_t)\log\pi_\theta(a_t\mid s_t)+\eta\mathcal H(\pi_\theta)].
+$$
+
+$\operatorname{sg}$ means stop gradient, $\bar A_t$ is the normalized advantage, and $\mathcal H$ is entropy. Trajectory weighting, distributional values and target details are omitted here. DreamerV3 also uses techniques such as symlog compression, $\operatorname{sign}(x)\log(1+|x|)$, to handle numeric scales. No single one of these ingredients is the entire algorithm.
+
+## TD-MPC: Short Predictions, Long-Term Values
+
+<ModelFlow steps={["Infer task-oriented state","Roll out short candidate plans","Add learned endpoint value","Execute the selected action"]} caption="Near-term model predictions and long-term value estimates support the same planner." />
+
+A short planning horizon may stop before an important consequence. Long model rollouts can accumulate errors. TD-MPC combines a short latent rollout with a learned endpoint action value, while a learned policy helps propose candidate actions.
+
+The score has the schematic shape:
+
+$$
+G=\sum_{t=0}^{H-1}\gamma^t\hat r_t+\gamma^H\hat Q(z_H,\pi(z_H)).
+$$
+
+The sum handles the explicitly predicted near future. The Q term estimates continuation beyond it. The actor supports candidate generation and value learning; the executed action still comes from the planner. Latent consistency, reward and temporal-difference objectives jointly train a task-oriented representation, rather than requiring reconstruction of every pixel.
+
+TD-MPC2 extends this line with a more scalable and robust model-based control system. Treat it as a further development, not simply a renamed version of Dreamer. The key contrast remains **planner at decision time** versus **actor trained through imagination**.
+
+## Beyond Latent Rollouts
+
+### DIAMOND: Generate Future Observations
+
+<ModelFlow steps={["Collect images and actions","Learn conditional denoising","Generate next-frame experience","Train behavior in imagined play"]} caption="The predicted observation is an image rather than only a compact control state." />
+
+DIAMOND supplies imagined practice by generating images. Its diffusion model learns to remove noise from the next-frame image, conditioned on past frames and actions. During generation, iterative denoising samples a plausible next frame.
+
+If a clean pixel is 0.6, noise is −0.5 and noise scale is 0.2, the noisy input is 0.5. Training asks the model to recover the clean image. The practical model uses EDM preconditioning and weighting, so this pixel example illustrates the task rather than its full loss.
+
+Generated frames become the policy's next imagined observations; rewards and episode endings also provide learning signals. This is observation-space model-generated learning. Pixel generation can preserve useful detail, but repeated prediction is still vulnerable to accumulated error.
+
+### APV: Learn Visual Change before Learning Control
+
+<ModelFlow steps={["Watch action-free videos","Learn visual dynamics","Adapt with actions and rewards","Learn task behavior"]} caption="Video supplies visual knowledge; interaction supplies action consequences." />
+
+Action-free videos show what changes, but omit which control input caused it. APV first pretrains visual dynamics without action labels, then uses real task interaction to learn an action-conditioned control model stacked with the pretrained visual representation.
+
+Watching a ball roll can teach patterns of visual motion. Later interaction with a pusher supplies the missing action–consequence connection. Watching alone has not identified the command that moves the ball toward a target.
+
+This is offline-to-online learning from different data sources. It should not be confused with offline RL from a fixed dataset of action-labeled transitions, which we discuss [next](/docs/04-model-based/offline-model-based-rl).
+
+## Compare the Control Loops
+
+| Method | Main prediction space | What uses the predicted futures? | Next real action |
+|---|---|---|---|
+| PlaNet | Latent state | CEM planning | First action of a searched sequence |
+| Dreamer | Latent state | Actor–critic training | Actor applied to the inferred state |
+| TD-MPC | Task-oriented latent state | Short planning plus endpoint Q | Planner's selected action |
+| DIAMOND | Generated images | Actor–critic training | Trained policy |
+| APV | Pretrained visual and adapted control states | Model adaptation and imagined learning | Adapted policy |
+
+Do not let the phrase **world model** hide the control loop. Ask what is predicted, what learns from those predictions, and how the real action is chosen.
+
+## References
+
+- Hafner et al. (2019), [Learning Latent Dynamics for Planning from Pixels (PlaNet)](https://arxiv.org/abs/1811.04551).
+- Hafner et al. (2020), [Dream to Control (DreamerV1)](https://arxiv.org/abs/1912.01603).
+- Hafner et al. (2021), [Mastering Atari with Discrete World Models (DreamerV2)](https://arxiv.org/abs/2010.02193).
+- Hafner et al., [Mastering Diverse Domains through World Models (DreamerV3)](https://arxiv.org/abs/2301.04104).
+- Hansen, Su and Wang (2022), [TD-MPC](https://proceedings.mlr.press/v162/hansen22a.html); Hansen et al. (2024), [TD-MPC2](https://arxiv.org/abs/2310.16828).
+- Alonso et al. (2024), [Diffusion for World Modeling: Visual Details Matter in Atari (DIAMOND)](https://arxiv.org/abs/2405.12399).
+- Seo et al. (2022), [Reinforcement Learning with Action-Free Pre-Training from Videos (APV)](https://arxiv.org/abs/2203.13880).

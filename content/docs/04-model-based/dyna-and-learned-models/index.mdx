@@ -1,6 +1,152 @@
 ---
-title: Dyna and Learned Models
-description: Integrated learning, planning, and acting with learned environment dynamics.
+title: Dyna and Learning Policies with Models
+description: From tabular Dyna-Q to short MBPO rollouts and policy gradients through learned dynamics.
 ---
 
-To be done soon
+> **Abstract.** A model can help an agent learn even when its next real action comes directly from a policy or value function. Dyna-Q makes the connection explicit: real and imagined transitions update the same Q table. MBPO develops this idea with short neural-model rollouts and SAC. PILCO and SVG use a different learning signal: derivatives through predictions.
+
+The [framework chapter](/docs/04-model-based/model-based-rl-framework) distinguished background training from decision-time planning. Here we follow the first route. The question is simple: **while the real environment is paused, what useful work can the agent do?**
+
+## Start with Q-Learning
+
+Return to the [GridWorld and Q-learning update](/docs/01-value-based/sarsa-and-q-learning). A robot moves from cell $s$ to cell $s'$ after action $a$, observes reward $r$, and updates an estimate $Q(s,a)$ of long-term return. Let $d=1$ if this transition ends the episode, and $d=0$ otherwise. Break the calculation into three pieces:
+
+$$
+\begin{aligned}
+y &= r+\gamma(1-d)\max_b Q(s',b),\\
+\delta &= y-Q(s,a),\\
+Q(s,a)&\leftarrow Q(s,a)+\alpha\delta.
+\end{aligned}
+$$
+
+The target $y$ is reward now plus the best discounted continuation. The temporal-difference error $\delta$ is the gap between that target and the old estimate. The learning rate $\alpha$ determines how far to move toward the target.
+
+For example, let $Q(s,a)=2$, $r=1$, $\gamma=0.9$, and the next state's best Q value be $4$. On a nonterminal transition, $y=4.6$. With $\alpha=0.1$, the new estimate is $2+0.1(4.6-2)=2.26$. At a terminal transition, there is no continuation term.
+
+Nothing in this arithmetic says that the transition must have been collected a moment ago. That observation leads to Dyna.
+
+## Dyna-Q: One Update Rule, Two Sources of Transitions
+
+<ModelFlow steps={["Observe a real transition","Update Q and the model","Query remembered consequences","Apply extra updates to Q"]} caption="Real and modeled outcomes teach the same value function." />
+
+Suppose the robot has already tried moving right from cell A and reached cell B with reward 0. A minimal deterministic model can remember:
+
+$$
+\operatorname{Model}(\mathrm{A},\mathrm{right})=(0,\mathrm{B},0).
+$$
+
+This table answers a **what-if question** without moving the robot. Dyna-Q uses the answer as another Q-learning example. An observed transition and a model-generated transition use the same update above; only their source differs.
+
+One complete iteration is:
+
+1. Choose an exploratory real action and observe its reward and next state.
+2. Update Q from that measured transition.
+3. Update the model with the same measurement.
+4. Sample a previously observed state–action pair, query its modeled outcome, and update Q again.
+5. Repeat the model step $n$ times before the next real move.
+
+With $n=10$, one real transition can support eleven value updates. This is extra computation, not eleven independent measurements. When a newly discovered exit raises the value of one cell, modeled transitions can spread that information toward its predecessors.
+
+Dyna calls these **planning updates**, even though they need not search a complete future trajectory to choose the next action. Their result is stored in the Q table. The next real action can then be selected directly from Q.
+
+The last-outcome table is a teaching example for deterministic dynamics. In a slippery grid, a suitable model instead needs transition probabilities or samples from the possible outcomes. A model that remembers one accidental slip as the only possible result can make repeated practice misleading.
+
+### Why This Is Different from Replay
+
+Replay selects a recorded transition and learns from it again. Dyna queries a model of the consequences. In the simplest deterministic table, that query can reproduce a stored transition, so the two may look similar. The distinction matters once a learned model predicts outcomes, generalizes to other states, or incorporates an updated transition distribution. **A replay buffer is a collection of examples; a model is a predictor of consequences.**
+
+### Prioritized Sweeping: Practise Where Values Have Changed
+
+Uniformly sampling old state–action pairs may waste model updates. If discovering an exit changes one state's value, the most useful next updates often concern states that can lead to it.
+
+Prioritized sweeping keeps track of these predecessors. It prioritizes backups with large estimated value changes, performs an important backup, and revisits affected predecessors. Think of news about the exit travelling backward through the corridor. The model supplies the connections; a priority queue helps decide where to spend computation. Exact update and priority rules vary between tabular variants. This is not the same as merely assigning high sampling weights to stored replay transitions.
+
+## MBPO: Short Rollouts, Many Learning Updates
+
+<ModelFlow steps={["Sample a real replay state","Predict a short practice branch","Train SAC with mixed experience","Use the actor for real actions"]} caption="The model generates training data; the trained actor chooses real actions." />
+
+A Q table is awkward for a robot with continuous positions, velocities and forces. We already have a neural learner for these tasks: [SAC](/docs/03-off-policy-policy-based/td3-and-sac). Its actor chooses actions and its critics estimate long-term value using replayed experience.
+
+Could a learned model supply additional replay transitions? Yes, but a long predicted attempt can drift away from reality. Once one predicted state is wrong, later actions are conditioned on that wrong state and the error can grow.
+
+**Model-Based Policy Optimization (MBPO)** therefore starts short imagined rollouts from states in real replay:
+
+$$
+\begin{aligned}
+s_0 &\sim \mathcal D_{\mathrm{real}},\\
+a_t &\sim \pi_\theta(\cdot\mid s_t),\\
+(s_{t+1},r_t)&\sim\hat p_\phi(\cdot\mid s_t,a_t).
+\end{aligned}
+$$
+
+Read this top to bottom. Pick a measured starting state. Ask the actor for an action. Ask the model for the next state and reward. Continue briefly, then start a new branch near real evidence. Here $\sim$ means sampling, $\pi_\theta$ is the actor, and $\hat p_\phi$ is the learned predictor.
+
+The complete loop is:
+
+1. Collect real transitions and fit a probabilistic dynamics ensemble.
+2. Start short model branches from real replay states.
+3. Add generated transitions to a model replay buffer.
+4. Update SAC using real and generated experience, then collect more real data.
+
+For a parking cart, one recorded state can seed several short braking attempts. These are practice attempts inside the model, not extra movements of the real cart. Short rollouts reduce exposure to error; their length is a design choice and may change during training.
+
+SAC's learning rule remains an actor–critic rule. For example, its nonterminal soft value target combines a reward, the smaller of two next-state Q estimates, and an entropy term. MBPO changes the **source of training experience**; it does not require the actor gradient to pass through the dynamics model.
+
+At decision time the trained actor can produce a control action directly. This is why using SAC inside MBPO does not make the overall learning pipeline model-free: the dynamics predictions helped train the behavior.
+
+## Another Route: Improve a Policy through Model Derivatives
+
+Generated transitions are one way to turn predictions into learning. A differentiable model offers another: calculate how a small change in a policy changes future motion and therefore total cost. A derivative is a local sensitivity, not another imagined reward sample.
+
+### PILCO: Improve a Controller while Tracking Uncertainty
+
+<ModelFlow steps={["Collect measured motion","Predict uncertain state changes","Differentiate expected cost","Improve and test the policy"]} caption="Policy parameters affect both predicted motion and uncertainty." />
+
+Imagine a parking policy with two adjustable gains: one pushes toward the goal and one brakes velocity. Running a model tells us how this policy performs. Differentiating through the prediction tells us how changing either gain changes predicted cost.
+
+PILCO learns a Gaussian-process dynamics model, which predicts a state change together with uncertainty. It approximately propagates future state distributions and minimizes expected task cost:
+
+$$
+E_t=\mathbb E[c(s_t)],\qquad
+J(\theta)=\sum_{t=1}^{H} E_t.
+$$
+
+Here $c$ is a cost, $H$ is the prediction horizon, and $\theta$ contains policy parameters. Lower $J$ is better. The expectation matters: for scalar cost $x^2$, a state with mean $2$ and variance $1$ has expected cost $5$, rather than the cost at its mean, $4$.
+
+Policy changes affect both predicted mean and covariance. PILCO differentiates its approximate expected-cost computation through those effects, improves the policy, tries it in reality, and refits the model. Its state-distribution propagation is approximate; uncertainty-aware optimization is not a safety certificate.
+
+### SVG: Follow the Chain Rule through a Sampled Future
+
+<ModelFlow steps={["Change a policy parameter","Trace its action effect","Trace later states and rewards","Update with the return gradient"]} caption="Sensitivities flow back through the predicted consequences." />
+
+Stochastic Value Gradients (SVG) make randomness explicit:
+
+$$
+a_t=\pi_\theta(s_t,\epsilon_t),\qquad
+s_{t+1}=f_\phi(s_t,a_t,\xi_t).
+$$
+
+The inputs $\epsilon_t$ and $\xi_t$ are sampled policy and transition noise. For fixed draws, the rollout is a chain of differentiable functions. A policy change alters its action, the action alters the next state, and that state affects later actions and rewards.
+
+In a scalar example, if a policy-parameter change of $0.01$ changes its action by $0.02$, and one action unit changes next velocity by $0.1$, that action path changes next velocity by about $0.002$. The complete gradient adds all relevant paths through states, actions and rewards. Short SVG variants can use a critic to summarize a distant tail, and model derivatives can also be evaluated along measured trajectories with inferred noise. SVG(0) is the model-free boundary case; model-based variants use dynamics derivatives.
+
+## What Should We Remember?
+
+| Method | What does the model supply? | How is the next real action chosen? |
+|---|---|---|
+| Dyna-Q | Simulated consequences for Q updates | From learned Q values |
+| MBPO | Short generated transitions for SAC | From the trained actor |
+| PILCO | Predicted state distributions and cost derivatives | From the optimized policy |
+| Model-based SVG variants | Derivatives of action consequences | From the trained policy |
+
+All four use the model to improve reusable behavior. Their main risk is also shared: a policy can improve according to the model while becoming worse in the real task. Check real return and interaction cost alongside imagined objectives.
+
+The [next chapter](/docs/04-model-based/model-predictive-control) changes the timing: instead of storing the benefit in an actor or Q table, use predictions to choose the next action now.
+
+## References
+
+- Sutton (1991), [Dyna, an integrated architecture for learning, planning, and reacting](https://doi.org/10.1145/122344.122377).
+- Moore and Atkeson (1993), [Prioritized Sweeping](https://publications.ri.cmu.edu/prioritized-sweeping-reinforcement-learning-with-less-data-and-less-real-time).
+- Janner et al. (2019), [When to Trust Your Model: Model-Based Policy Optimization](https://arxiv.org/abs/1906.08253).
+- Deisenroth and Rasmussen (2011), [PILCO](https://www.deisenroth.cc/publication/deisenroth-2011-c/).
+- Heess et al. (2015), [Learning Continuous Control Policies by Stochastic Value Gradients](https://arxiv.org/abs/1510.09142).

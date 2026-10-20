@@ -55,7 +55,14 @@
 
 ### 基于模型的方法
 
-即将完成。
+以下章节已提供英文内容，中文译文尚待补充。
+
+- [基于模型的强化学习框架（含桌球互动）](https://rl-handbook.com/docs/04-model-based/model-based-rl-framework)
+- [Dyna 与利用模型学习策略](https://rl-handbook.com/docs/04-model-based/dyna-and-learned-models)
+- [规划与模型预测控制](https://rl-handbook.com/docs/04-model-based/model-predictive-control)
+- [树搜索：从 MCTS 到 MuZero](https://rl-handbook.com/docs/04-model-based/alphazero-and-muzero)
+- [潜在状态中的模型强化学习](https://rl-handbook.com/docs/04-model-based/latent-model-based-rl)
+- [离线模型强化学习](https://rl-handbook.com/docs/04-model-based/offline-model-based-rl)
 
 ### 高级主题
 

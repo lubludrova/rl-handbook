@@ -5,6 +5,8 @@
     "model-based-rl-framework",
     "dyna-and-learned-models",
     "model-predictive-control",
-    "alphazero-and-muzero"
+    "alphazero-and-muzero",
+    "latent-model-based-rl",
+    "offline-model-based-rl"
   ]
 }

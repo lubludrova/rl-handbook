@@ -1,6 +1,117 @@
 ---
-title: AlphaZero and MuZero
-description: Planning with Monte Carlo tree search and learned models.
+title: "Tree Search: From MCTS to MuZero"
+description: How local search chooses moves, trains policy and value networks, and uses learned dynamics.
 ---
 
-To be done soon
+> **Abstract.** A search tree organizes possible continuations of a decision. Monte Carlo tree search spends computation on selected branches. AlphaZero uses policy and value predictions to guide this search and learns from its results. MuZero also learns the dynamics used to expand the tree. We follow one decision through these steps before writing the learning objectives.
+
+[Trajectory planning](/docs/04-model-based/model-predictive-control) compared sequences of robot actions. In a board game, each candidate move opens several possible replies, and each reply opens more moves. Enumerating the full tree soon becomes impossible. The question becomes: **which possibilities deserve more investigation?**
+
+## One Search Iteration
+
+At the root is the current situation. Edges are actions; children represent their consequences. Monte Carlo tree search (MCTS) repeats four operations:
+
+1. **Select:** follow promising edges through the existing tree while leaving some opportunity to explore less-visited choices.
+2. **Expand:** add a new successor using the transition model.
+3. **Evaluate:** estimate the continuation's return. Classical MCTS can use a simulated rollout; AlphaZero-style search uses a value network.
+4. **Back up:** send the estimate back through the visited path, updating visit counts and action-value estimates.
+
+These are internal computations. No real game move has been played yet. After many iterations, root statistics help select the action to execute.
+
+For example, move A initially has a high estimate. Searching a reply reveals a weak continuation. Its backed-up value falls, and later iterations may spend more visits on B. More visits are not extra environment experience: they are investigation through the model.
+
+### Value Plus an Exploration Bonus
+
+A simplified policy-guided selection rule is:
+
+$$
+\begin{aligned}
+U(s,a)&=cP(s,a)\frac{\sqrt{\sum_b N(s,b)}}{1+N(s,a)},\\
+a_{\mathrm{select}}&=\arg\max_a[Q(s,a)+U(s,a)].
+\end{aligned}
+$$
+
+$Q(s,a)$ is the current search estimate; $P(s,a)$ is a policy prior suggesting promising moves; $N$ counts visits. The positive coefficient $c$ controls exploration. A move's bonus decreases as that move receives more visits, while the parent visit count creates pressure to investigate alternatives. Full AlphaZero and MuZero search includes additional choices such as root exploration, value conventions and normalization; this is the selection intuition rather than their complete algorithm.
+
+If A has $Q=2$ and bonus $1$, it scores $3$. B with $Q=2.5$ and bonus $0.2$ scores $2.7$. Search may investigate A despite its lower current Q estimate.
+
+## AlphaZero: Search Teaches a Reusable Network
+
+Known game rules can already supply exact successors. Learning is useful because search still needs guidance about which moves and positions are promising.
+
+AlphaZero uses a network that predicts a move prior $p_\theta$ and a value $v_\theta$. Self-play search uses these predictions, but its root visit counts produce an improved move distribution $\pi$. A completed game supplies an outcome $z$.
+
+The central training objective has three recognizable terms:
+
+$$
+\mathcal L=(z-v_\theta)^2-\sum_a\pi(a)\log p_\theta(a)+c_{\mathrm{reg}}\|\theta\|^2.
+$$
+
+Read each term separately. The first fits the game outcome. The second teaches the policy to imitate the search distribution rather than only its own initial suggestion. The final term regularizes the weights. The regularization coefficient here is separate from the search-exploration coefficient above.
+
+The loop is therefore **network → search → self-play outcomes and search targets → updated network**. Decisions require search, and the benefit of search also becomes reusable knowledge.
+
+AlphaGo combined policy/value learning with search and used human-game training in its original system. AlphaGo Zero removed that human-game requirement for Go. AlphaZero generalized the self-play framework to Go, chess and shogi. Those systems still used supplied game rules to expand the tree.
+
+### Keeping Player Perspectives Consistent
+
+In a two-player zero-sum game, a value from one player's perspective is the negative of the other player's value. Backup must respect this convention as turns alternate. A single-agent reward-accumulation task does not flip signs simply because search moved one step deeper. Confusing these conventions makes even a correct tree structure choose bad moves.
+
+## MuZero: Learn the Search Dynamics Too
+
+<ModelFlow steps={["Encode observation history","Expand hidden successors","Evaluate rewards, values and priors","Choose a move using tree search"]} caption="Learn the quantities search needs without requiring image reconstruction." />
+
+What if exact transitions have not been supplied to the planner? MuZero learns an internal representation and dynamics that support search. It uses three functions:
+
+$$
+s^0=h_\theta(o_{1:t}).
+$$
+
+The representation function $h_\theta$ encodes observation history into the search root. The superscript counts imagined depth, not an exponent. For a hypothetical action $a^k$:
+
+$$
+(\hat r^k,s^k)=g_\theta(s^{k-1},a^k).
+$$
+
+The dynamics function $g_\theta$ predicts a reward and successor hidden state. A prediction function then evaluates that node:
+
+$$
+(\hat p^k,\hat v^k)=f_\theta(s^k).
+$$
+
+These outputs are the policy prior and value used by search. MuZero does not require a decoder that redraws every future image. Its hidden state is useful to the extent that rewards, values and search decisions can be predicted from it.
+
+One actual decision proceeds as follows:
+
+1. Encode the current history into a hidden root.
+2. Run tree-search iterations, expanding hypothetical actions through learned dynamics.
+3. Choose the real action from the root search statistics.
+4. Observe the actual outcome and store the experience.
+
+Training unrolls recorded actions through the learned model. Predicted rewards are fitted to recorded rewards, values to return targets, and policies to search distributions. In schematic form:
+
+$$
+\mathcal L=L_{\mathrm{reward}}+L_{\mathrm{value}}+L_{\mathrm{policy}}+L_{\mathrm{regularization}}.
+$$
+
+The exact losses, target construction and transforms depend on the setting. The important causal chain is that model errors alter search branches, which can alter the action and the later training targets.
+
+## What Changed along the Way?
+
+| Approach | Successor model | How is a search leaf evaluated? | What persists after search? |
+|---|---|---|---|
+| Classical rollout-based MCTS | Supplied transition rules or simulator | Simulated continuation | Search statistics; no learned network is required |
+| AlphaZero | Known game rules | Learned value network | Policy/value network trained from search and self-play |
+| MuZero | Learned hidden dynamics and reward | Learned value prediction | Representation, dynamics, reward, policy and value predictions |
+
+All three can use lookahead. Learning a policy prior does not remove search from AlphaZero, and learning hidden dynamics does not make MuZero a faithful visual simulator. A useful model can focus on the quantities required for a decision.
+
+The [next chapter](/docs/04-model-based/latent-model-based-rl) examines learned internal states more broadly. PlaNet, Dreamer and TD-MPC all use them, but differ in how their predictions become actions or policy updates.
+
+## References
+
+- Kocsis and Szepesvári (2006), [Bandit based Monte-Carlo Planning](https://doi.org/10.1007/11871842_29).
+- Silver et al. (2016), [Mastering the game of Go with deep neural networks and tree search](https://doi.org/10.1038/nature16961).
+- Silver et al. (2017), [Mastering the game of Go without human knowledge](https://doi.org/10.1038/nature24270).
+- Silver et al. (2018), [A general reinforcement learning algorithm that masters chess, shogi, and Go through self-play](https://arxiv.org/abs/1712.01815).
+- Schrittwieser et al. (2020), [Mastering Atari, Go, chess and shogi by planning with a learned model](https://arxiv.org/abs/1911.08265).

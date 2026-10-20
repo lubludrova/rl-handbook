@@ -1,0 +1,89 @@
+---
+title: Offline Model-Based RL
+description: Why fixed data changes model trust, and how MOPO and MBOP address different parts of the problem.
+---
+
+> **Abstract.** Offline model-based RL learns from a fixed log. Unsupported actions can exploit prediction errors that further training interaction cannot correct. MOPO penalizes uncertain imagined rewards before policy learning. MBOP uses offline-learned dynamics, behavior and continuation values to guide deployment-time planning. The contrast separates data availability from when a model is used.
+
+So far, our robot could try a policy, record what happened and improve its model. Now imagine that only an old operation log is available. It contains states, actions, rewards and next states, but **we cannot collect additional training transitions**.
+
+This is a change in data regime, not a new model-use family. We can still use model predictions for [background policy learning](/docs/04-model-based/dyna-and-learned-models) or for [decision-time planning](/docs/04-model-based/model-predictive-control).
+
+## Why Model Optimism Becomes Harder to Correct
+
+Suppose the log mostly contains gentle pushes. A learned model may fit those well while making poor predictions for a hard push. A policy or planner may discover that the hard push receives a large predicted reward and choose it repeatedly in imagination.
+
+The candidate looks good because of an error, not because the recorded data supports it. Online interaction could supply corrective evidence. In offline training, that evidence is unavailable. More imagined rollouts repeat the model's belief; they do not validate it.
+
+## MOPO: Lower the Reward of Uncertain Predictions
+
+<ModelFlow steps={["Fit a fixed transition log","Generate model experience","Penalize uncertain rewards","Train a cautious actor"]} caption="Offline training cannot collect new transitions to check unsupported optimism." />
+
+MOPO learns a probabilistic ensemble from the fixed dataset and uses it to generate practice transitions for an off-policy actor–critic learner. It adjusts the model-generated rewards:
+
+$$
+\mathrm{penalty}(s,a)=\lambda u(s,a),
+$$
+
+$$
+\tilde r(s,a)=\hat r(s,a)-\mathrm{penalty}(s,a).
+$$
+
+$\hat r$ is the predicted or available reward, $u$ is a practical uncertainty proxy, and $\lambda$ controls how much caution to apply. The policy learns from adjusted reward $\tilde r$ rather than taking a large model reward at face value.
+
+For example, action A predicts reward 10 with uncertainty 3. B predicts reward 6 with uncertainty 0.5. With $\lambda=2$, their adjusted rewards are 4 and 5. In this one-step illustration B becomes preferable.
+
+The complete mechanism is:
+
+1. Fit the model ensemble to the fixed transition log.
+2. Start short predicted rollouts from dataset states.
+3. Penalize generated rewards using the uncertainty estimate.
+4. Train the actor–critic with real data and penalized imagined transitions.
+
+The practical MOPO penalty uses predicted Gaussian spread across model members, not simply the disagreement between their mean predictions. It is an error proxy, not a certified error bound. Overconfidence can defeat the penalty, and excessive caution can reject useful behavior. Theoretical lower-bound interpretations require assumptions on the error estimator that a practical proxy need not satisfy.
+
+The resulting actor can act directly. As with MBPO, the model's main contribution is to training experience; the fixed data and pessimistic reward adjustment change the learning setting.
+
+## MBOP: Plan near Recorded Behavior
+
+<ModelFlow steps={["Learn from fixed logged data","Propose behavior-like actions","Score predicted continuations","Execute the first planned action"]} caption="Offline learning and deployment-time planning describe different stages." />
+
+MBOP makes a different choice: learn useful planning components offline, then search while acting. It learns:
+
+| Component | Question answered |
+|---|---|
+| Dynamics predictor | What next state follows this action? |
+| Behavior prior | What action resembles the recorded behavior here? |
+| Continuation-value predictor | What return might follow the end of this short rollout? |
+
+The behavior prior guides candidate generation. Search begins near actions supported by the log, adds noise to try alternatives, and mixes with the shifted previous plan. It scores candidates using predicted rollout rewards and learned continuation value, with ensemble predictions used in evaluation.
+
+Higher-return candidates receive larger normalized weights:
+
+$$
+w_i=\frac{e^{\kappa G_i}}{\sum_j e^{\kappa G_j}},\qquad
+\bar a_t=\sum_i w_i a_t^{(i)}.
+$$
+
+First convert predicted sequence scores $G_i$ into weights summing to one. Then average candidate actions separately at each time index. For actions 0.2 and 0.8 with weights 0.25 and 0.75, the weighted action is 0.65. This is the intuition of weighted planning, not all indexing and mixing details of the full algorithm.
+
+The controller executes the first action of the improved plan and observes the next state before planning again. **Offline training does not mean the agent cannot observe or compute during deployment.** It means the fitted components were learned from fixed training data. Evaluation interaction is a separate stage.
+
+## Three Labels That Should Stay Separate
+
+| Label | What it describes | Example |
+|---|---|---|
+| Online / offline | Whether training can gather new interaction | Online MBPO versus offline MOPO |
+| Background learning / decision-time planning | What model predictions contribute | MOPO actor training versus MBOP planning |
+| Explicit / latent / observation space | What the model represents or predicts | State-space MOPO versus latent Dreamer |
+
+On-policy versus off-policy is another distinction about the relationship between behavior data and updates. SAC inside online MBPO is off-policy because it reuses replay, even though training continues to collect interaction. APV's offline action-free videos are not the same kind of data as the labeled log used by MOPO.
+
+Other offline model-based methods include MOReL and COMBO, with different mechanisms for controlling unsupported optimism. Their details go beyond this introduction. Across methods, ask whether imagined improvement is supported by the available evidence, and evaluate the complete agent rather than only its predicted score.
+
+## References
+
+- Yu et al. (2020), [MOPO: Model-based Offline Policy Optimization](https://arxiv.org/abs/2005.13239).
+- Argenson and Dulac-Arnold (2021), [Model-Based Offline Planning (MBOP)](https://arxiv.org/abs/2008.05556).
+- Kidambi et al. (2020), [MOReL: Model-Based Offline Reinforcement Learning](https://arxiv.org/abs/2005.05951).
+- Yu et al. (2021), [COMBO: Conservative Offline Model-Based Policy Optimization](https://arxiv.org/abs/2102.08363).

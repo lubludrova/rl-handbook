@@ -11,6 +11,22 @@ A robot approaching a doorway can try a movement and learn from what happens. If
 
 One option is to use the model to compare possible movements before each action. Another is to use model predictions during training: simulated transitions help improve a **policy**. For example, [MBPO](/docs/04-model-based/dyna-and-learned-models#mbpo-short-rollouts-many-learning-updates) trains a policy on real and model-generated transitions. When acting, the policy chooses an action from the current state without predicting future trajectories. We will first introduce the environment and control loop, then connect these ideas to dynamic programming and map the algorithm families.
 
+### Try It: Predict a Billiards Shot
+
+Before introducing the model notation, try a concrete prediction problem. Strike a white cue ball so that it sends the blue target ball into the pocket. A model can predict **both the collision and the later motion** before either real ball moves.
+
+<BilliardsPlayground />
+
+Try three comparisons:
+
+1. Choose **No model**. You can still aim and shoot, but no future trajectory is calculated for you.
+2. Choose **Imperfect model**, then **Find a shot with model**. It may predict a pocket that the actual shot cannot achieve.
+3. Keep that direction and power but switch to **Accurate model**. Its prediction changes even though the actual table has not. Search again and test the new shot.
+
+Dashed paths are imagined; solid trails record actual movement. The imperfect model assumes a slipperier table and softer ball collisions. The accurate model matches this simplified simulator's parameters. Switching models changes the agent's predictor, not the environment. It does not learn these parameters from experience.
+
+This is a **model-based planning demonstration**, not a trained RL agent. Manual aiming without a model is not itself model-free RL; a trained model-free policy could also choose good shots without simulating trajectories at decision time. The demo isolates what explicit prediction contributes, and how incorrect predictions can mislead a planner. The environment below is deterministic: its outcomes repeat for the same shot, but a mismatched model can still predict them incorrectly.
+
 ### Deterministic and Stochastic Environments
 
 Let us return to the [Small GridWorld example from the introduction](/docs/00-introduction/what-is-reinforcement-learning#example-small-gridworld). With **deterministic dynamics**, the same state and action always lead to the same next state: $s_{t+1}=f(s_t,a_t)$. Choosing right from cell 5 always takes the agent to cell 6. With **stochastic dynamics**, that same state and action can lead to different outcomes: $s_{t+1}\sim p(\cdot\mid s_t,a_t)$. If we add slipping to the grid, choosing right might move the agent right or send it sideways. This distinction describes how predictable the environment's response is once an action has been chosen. A policy can choose its actions randomly in either kind of environment. Even when each action has a fixed outcome, the agent may have to discover that rule through experience. In a stochastic environment, it can learn how likely each outcome is. Rewards can vary too: even when a movement always reaches the same cell, its reward may differ between attempts.
@@ -163,13 +179,17 @@ A **deterministic model** predicts one successor for a state-action pair. A **pr
 
 <span id="what-changes-offline" />
 
-In **online model-based RL**, the agent continues collecting real transitions and updating its model or behavior. In **offline model-based RL**, the dataset is fixed, so planning and policy improvement must rely on its coverage. Unsupported actions can look attractive because of errors in predicted rewards, transitions, or values. Methods such as **MOPO**, **MOReL**, and **COMBO** add mechanisms that discourage excessive trust in those predictions. This learning setting is a separate choice from on-policy or off-policy updates. MBPO combines online interaction with an off-policy SAC learner that reuses replay data.
+In **online model-based RL**, the agent continues collecting real transitions and updating its model or behavior. In **offline model-based RL**, the dataset is fixed, so planning and policy improvement must rely on its coverage. Unsupported actions can look attractive because of errors in predicted rewards, transitions, or values. Methods such as **MOPO**, **MOReL**, and **COMBO** add mechanisms that discourage excessive trust in those predictions. This learning setting is a separate choice from on-policy or off-policy updates. MBPO combines online interaction with an off-policy SAC learner that reuses replay data. The [offline chapter](/docs/04-model-based/offline-model-based-rl) contrasts MOPO's policy learning with MBOP's offline-trained planner.
+
+The practical three-axis description is therefore **model use × model representation × data regime**. Background training can generate experience or pass gradients through predictions; decision-time planning compares futures for the current action. PlaNet and Dreamer share latent modeling but use it differently. MOPO and MBOP both learn offline but choose real actions differently.
+
+Sim-to-real describes transfer, rather than one of these model-use mechanisms. For example, training PPO in a simulator and transferring its policy to a robot can remain model-free: the simulator supplies experience to PPO. Explicitly using dynamics predictions for search, generated learning targets, or dynamics gradients introduces a model-based component.
 
 <span id="choosing-a-family-and-evaluating-the-choice" />
 
 ## A Map of the Chapters Ahead
 
-The next chapter develops background training. Two chapters then cover decision-time planning through trajectory optimization and tree search. The final chapter examines how learned internal states and their dynamics support both families:
+The next chapter develops background training. Two chapters then cover decision-time planning through trajectory optimization and tree search. We then examine learned internal states, followed by the implications of learning from fixed offline data:
 
 | Chapter | Main question | Methods that develop the answer |
 |---|---|---|
@@ -177,5 +197,6 @@ The next chapter develops background training. Two chapters then cover decision-
 | [Planning and Model Predictive Control](/docs/04-model-based/model-predictive-control) | How do a model, objective, and optimizer produce actions with feedback? | LQR, iLQR/DDP, random shooting, CEM, PETS |
 | [Tree Search: From MCTS to MuZero](/docs/04-model-based/alphazero-and-muzero) | How does search choose actions and teach a network? | MCTS, AlphaGo, AlphaGo Zero, AlphaZero, MuZero |
 | [Latent Model-Based RL](/docs/04-model-based/latent-model-based-rl) | How do learned representations support different ways of controlling an agent? | PlaNet, Dreamer, TD-MPC, and wider world-model connections |
+| [Offline Model-Based RL](/docs/04-model-based/offline-model-based-rl) | What changes when further training interaction is unavailable? | MOPO, MBOP, and related offline methods |
 
 For each method, trace one prediction through the computation that uses it. Identify what the agent learns, how it chooses the next real action, and where an inaccurate prediction could change that action. Real return, real-interaction cost, training computation, and action-selection time then help assess whether the model improves the complete agent.

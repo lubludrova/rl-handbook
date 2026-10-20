@@ -55,7 +55,12 @@ This handbook gives a comprehensive, up-to-date guide to reinforcement learning 
 
 ### Model-Based
 
-To be done soon.
+- [Model-Based Framework](https://rl-handbook.com/docs/04-model-based/model-based-rl-framework) — includes an interactive billiards experiment.
+- [Dyna and Learning Policies with Models](https://rl-handbook.com/docs/04-model-based/dyna-and-learned-models)
+- [Planning and Model Predictive Control](https://rl-handbook.com/docs/04-model-based/model-predictive-control)
+- [Tree Search: From MCTS to MuZero](https://rl-handbook.com/docs/04-model-based/alphazero-and-muzero)
+- [Latent Model-Based RL](https://rl-handbook.com/docs/04-model-based/latent-model-based-rl)
+- [Offline Model-Based RL](https://rl-handbook.com/docs/04-model-based/offline-model-based-rl)
 
 ### Advanced Topics
 

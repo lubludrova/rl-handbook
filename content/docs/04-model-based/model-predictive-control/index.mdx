@@ -1,6 +1,131 @@
 ---
-title: Model Predictive Control
-description: MPC, MBPO, and planning with learned models for sample-efficient RL.
+title: Planning and Model Predictive Control
+description: Feedback, trajectory optimization, CEM and uncertainty-aware planning with PETS.
 ---
 
-To be done soon
+> **Abstract.** A model predicts consequences, an objective ranks them, and an optimizer searches for actions. Model predictive control repeats this calculation after each observation. We first separate these roles, then build from linear-quadratic control to sampled plans and PETS with learned probabilistic dynamics.
+
+The [previous chapter](/docs/04-model-based/dyna-and-learned-models) used imagined experience to improve a policy before acting. Here the immediate output of the model computation is the **next real action**. Recall the [billiards experiment](/docs/04-model-based/model-based-rl-framework#try-it-predict-a-billiards-shot): testing a candidate in a model does not move either real ball.
+
+## Three Ingredients of a Planner
+
+Imagine a cart approaching a doorway. We need:
+
+1. **A model:** given position, velocity and a push, predict the next state.
+2. **An objective:** prefer reaching the doorway with a low final velocity and reasonable effort.
+3. **An optimizer:** find a push sequence with a good predicted score.
+
+A perfect model does not find the plan by itself. A good optimizer also cannot repair systematically wrong physics. Keeping these roles separate helps diagnose a poor controller.
+
+For a candidate action sequence $\mathbf a=(a_0,\ldots,a_{H-1})$, the simplest deterministic rollout and return are:
+
+$$
+\hat s_{t+1}=\hat f(\hat s_t,a_t),\qquad
+G(\mathbf a)=\sum_{t=0}^{H-1}\gamma^t\hat r(\hat s_t,a_t).
+$$
+
+Start at the current observation $\hat s_0=s$. The model advances the state; the reward function scores it. A hat marks a prediction, not a measurement. Search returns $\mathbf a^*=\arg\max_{\mathbf a}G(\mathbf a)$: the sequence with the best score found. In practice the optimizer may only approximately solve this problem.
+
+## MPC: Execute One Action, Then Look Again
+
+An open-loop controller would execute the whole selected sequence. **MPC executes only $a_0^*$.** It then observes the actual next state, shifts its planning horizon forward, and searches again. The old remaining sequence can initialize the next search.
+
+For a cart, a weak push may move it less than predicted. Replanning uses its actual position instead of pretending the old trajectory happened. Each individual candidate may be an open-loop sequence while the complete MPC controller is closed-loop.
+
+The billiards demo is a single-shot planning example: after striking the ball, it cannot change that shot. A cart controlled by repeated pushes can replan between pushes. Both use prediction; only the latter implements this receding-horizon feedback loop.
+
+MPC is a control procedure, not necessarily an RL algorithm. It can run with a supplied model and objective without learning either one. Learning dynamics or combining the planner with learned policy/value components introduces learning into the system.
+
+## A Solvable Starting Point: Linear-Quadratic Control
+
+Suppose dynamics are linear and costs quadratic:
+
+$$
+s_{t+1}=As_t+Ba_t,\qquad
+c(s_t,a_t)=s_t^\top Qs_t+a_t^\top Ra_t.
+$$
+
+Here $A$ describes free motion, $B$ describes the action effect, and the positive-semidefinite $Q$ and positive-definite $R$ weight state error and effort. A finite-horizon problem also specifies a terminal cost. State coordinates may represent deviations from a desired equilibrium.
+
+Linear-quadratic regulation (LQR) solves this problem with backward dynamic programming. If the next-step value is $s^\top P_{t+1}s$, the optimal action has the form:
+
+$$
+a_t=-K_ts_t,\qquad
+K_t=(R+B^\top P_{t+1}B)^{-1}B^\top P_{t+1}A.
+$$
+
+The matrix $P_{t+1}$ summarizes future cost; $K_t$ turns the current state error into a corrective action. This is feedback, rather than a fixed list of pushes. These expressions assume unconstrained actions and the linear-quadratic setup. They are not a general solution for arbitrary nonlinear dynamics, contact or actuator limits.
+
+For nonlinear systems, **iLQR** repeatedly approximates dynamics locally along a nominal trajectory and solves a quadratic local control problem. Differential dynamic programming (DDP) can also retain second-order dynamics terms that standard iLQR omits. Both need useful derivatives and a suitable initial trajectory; local improvement need not find a global optimum.
+
+## Sampling Plans: Random Shooting and CEM
+
+We can plan without dynamics derivatives by sampling candidates.
+
+**Random shooting** proposes many action sequences, rolls each through the model, and keeps the highest-scoring one. A long horizon makes the candidate space very large: many random sequences will be poor.
+
+The **cross-entropy method (CEM)** improves the sampling distribution rather than starting over blindly:
+
+1. Sample action sequences from a proposal, often a Gaussian over sequence coordinates.
+2. Score each sequence with model rollouts.
+3. Keep an elite subset of high-scoring sequences.
+4. Refit the proposal's mean and covariance to those elites, then sample again.
+
+The mean update is simply:
+
+$$
+\mu_{\mathrm{new}}=\frac{1}{K}\sum_{i\in\mathcal E}\mathbf a^{(i)}.
+$$
+
+$\mathcal E$ contains the $K$ elites. Average their action at each time index. If three elite first actions are $0.2$, $0.4$ and $0.6$, the next proposal's mean first action is $0.4$. The complete sequence and its spread are updated, not just its first entry.
+
+CEM is an optimizer. MPC specifies when to run an optimizer and how much of its plan to execute. Neither label alone says how the environment model was obtained.
+
+## PETS: Plan through Several Plausible Futures
+
+<ModelFlow steps={["Fit probabilistic model ensemble","Sample futures for each plan","Compare and refine sequences","Execute one action; observe again"]} caption="Several plausible futures inform a plan; only one real action is executed before replanning." />
+
+A learned model is most reliable where observations support it. What if a single predictor says a fast push will stop exactly at the doorway, but other dynamics fit the data almost as well and predict overshoot?
+
+PETS learns an **ensemble of probabilistic dynamics models**. Ensemble members fit resampled datasets; each member predicts a distribution of possible next states. Uncertainty from stochastic outcomes and disagreement between fitted models are different ideas. The implementation combines them to sample possible futures.
+
+For each candidate sequence, PETS propagates particles through these models. A particle is one sampled state trajectory, not an additional physical agent. The plan is evaluated by averaging returns across particles:
+
+$$
+G_j=\sum_{t=0}^{H-1}\gamma^t r(s_t^{(j)},a_t),\qquad
+\bar G=\frac{1}{P}\sum_{j=1}^{P}G_j.
+$$
+
+First add rewards along particle $j$; then average over $P$ particles. For example, returns $6$, $8$ and $10$ average to $8$. CEM concentrates candidates toward higher average scores. After search, execute the first action, gather the next observation, and repeat.
+
+This is uncertainty-aware expected-return planning. It is not automatically worst-case optimization or a safety guarantee. If every ensemble member is wrong in the same way, the apparent agreement can still mislead search. The billiards model switch illustrates the basic failure: changing the predictor changes which shot looks good, even though the actual table stays fixed.
+
+## Why the Horizon Matters
+
+A short horizon needs fewer model steps and limits accumulated prediction error, but may miss a reward or hazard just beyond its endpoint. A longer horizon sees farther while increasing computation and dependence on accurate predictions.
+
+A learned terminal value offers a compromise:
+
+$$
+G(\mathbf a)=\sum_{t=0}^{H-1}\gamma^t\hat r_t+\gamma^H\hat V(\hat s_H).
+$$
+
+The explicit rollout handles the near future; the value estimate summarizes what may follow. An optimistic terminal critic can also be exploited by the planner. We develop this combination in [TD-MPC](/docs/04-model-based/latent-model-based-rl#td-mpc-short-predictions-long-term-values).
+
+## Putting the Pieces Together
+
+| Choice | Question it answers |
+|---|---|
+| Supplied or learned dynamics | Where do predicted consequences come from? |
+| Reward, cost and terminal value | Which predicted outcomes are useful? |
+| LQR, iLQR/DDP, random shooting or CEM | How is a candidate plan found? |
+| Open-loop execution or MPC | When do we observe and recompute? |
+
+The next chapter changes the structure of the possibilities. Instead of optimizing a fixed-length vector of pushes, [tree search](/docs/04-model-based/alphazero-and-muzero) allocates computation among branches of possible moves.
+
+## References
+
+- Underactuated Robotics, [Linear Quadratic Regulators](https://underactuated.mit.edu/lqr.html), for dynamic-programming and Riccati derivations.
+- Tassa, Erez and Todorov (2012), [Synthesis and stabilization of complex behaviors through online trajectory optimization](https://doi.org/10.1109/IROS.2012.6386025).
+- Chua et al. (2018), [Deep Reinforcement Learning in a Handful of Trials using Probabilistic Dynamics Models (PETS)](https://arxiv.org/abs/1805.12114).
+- Hansen, Su and Wang (2022), [Temporal Difference Learning for Model Predictive Control](https://proceedings.mlr.press/v162/hansen22a.html).
