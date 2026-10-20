@@ -130,14 +130,27 @@ These components have different jobs, and an algorithm can learn several of them
 
 Some components can be supplied in advance. Known game rules already provide a transition model. A planner can choose actions directly, while another agent can act through a learned policy. Learning and real interaction can alternate throughout training. The important question is which component an update changes: predictions of the environment, estimates of return, or the rule for choosing actions.
 
-## Families of Model-Based Methods
+## Three Axes for Classifying Model-Based RL
 
-We can now ask how these components work together in a complete agent. For this handbook, we group methods into two broad families by how they use model predictions to improve behavior. In **background training**, predictions help improve values or a policy that will guide later actions. In **decision-time planning**, predictions help choose the next action from the current state. Both uses can be combined in one agent.
+There is no single list of mutually exclusive algorithm families. A useful beginner's map asks three separate questions: **what job does the model do, what does it predict, and what data can the learner use?** Classify a method once on each axis. This keeps methods such as Dreamer, which use imagined data and gradients, from being forced into only one box.
 
-| Family | Main computation | What is learned? | Representative methods |
+| Axis | Categories | The question to ask | Representative examples |
 |---|---|---|---|
-| Background training | Use predictions to update a value function or policy | Values, a policy, or both. Often an environment model as well | Dyna-Q, MBPO, Dreamer (covered in [Latent Model-Based RL](/docs/04-model-based/latent-model-based-rl#dreamer-turn-imagination-into-an-actor-critic)) |
-| Decision-time planning | Use model-based search or optimization to choose the next action | The model can be known or learned. Policy and value functions can also be learned to support planning | PETS, PlaNet, TD-MPC, MCTS, AlphaZero, MuZero |
+| **1. Model use** | **Planning / search:** compare predicted futures to choose the next action. **Generated experience / learning targets:** create imagined transitions or targets to train values or a policy. **Differentiable policy optimization:** send gradients through predicted dynamics or returns to improve a policy. | Where does the model's prediction enter the decision or learning update? | Planning/search: MPC, PETS, AlphaZero, MuZero. Generated experience/targets: Dyna-Q, MBPO, MVE. Differentiable optimization: PILCO, SVG, DreamerV1. Some methods combine uses. |
+| **2. Model representation** | **Explicit state:** predict named variables such as position and velocity. **Latent state:** predict a compact learned internal state. **Observation space:** predict observations directly, often images. | What form does the model use to describe the situation and its next outcome? | Explicit state: Dyna-Q, PETS. Latent state: PlaNet, Dreamer, TD-MPC, MuZero. Observation space: video-prediction approaches such as DIAMOND. These are representative choices, not exclusive algorithm families. |
+| **3. Data regime** | **Online:** keep collecting environment interaction. **Offline:** learn from a fixed dataset. **Offline-to-online:** begin with a fixed dataset, then resume interaction. | Is the agent allowed to gather new real experience while learning? | Online: Dyna-Q, MBPO, PETS, Dreamer. Offline: MOPO, MOReL, COMBO, MBOP. Offline-to-online: APV and related adaptation methods. |
+
+Read across a row to classify one property at a time. For example, **Dreamer** uses a latent-state model, learns from online interaction, and uses model predictions for imagined experience and policy optimization. **MOPO** is an offline method that learns an explicit-state dynamics model and uses model-generated rollouts to train a policy. The three labels describe different choices, so they can be combined rather than competing with one another.
+
+## How Model Predictions Change Behavior
+
+The first axis separates methods that act on a model's predictions in different ways. During **background training**, predictions improve values or a policy that will guide later actions. This includes both generated experience or learning targets and differentiable policy optimization. In **decision-time planning**, the model helps choose the next action from the current state. A single agent can use both.
+
+| Model use | Main computation | Representative methods |
+|---|---|---|
+| Generated experience / learning targets | Use imagined transitions, returns, or other model-based targets to train a value function or policy | Dyna-Q, MBPO, MVE, Dreamer |
+| Differentiable policy optimization | Differentiate a predicted objective through the model to improve policy parameters | PILCO, SVG, DreamerV1 |
+| Decision-time planning / search | Search or optimize predicted futures, then choose an action for the current state | MPC, PETS, PlaNet, TD-MPC, MCTS, AlphaZero, MuZero |
 
 ### Family 1: Background Training
 
@@ -173,7 +186,7 @@ These two families can work together. AlphaZero uses its learned policy and valu
 
 The families describe how predictions contribute to behavior. We can further describe an agent by identifying where its model comes from, what it predicts, how it represents uncertainty, and which data are available for learning. These choices apply across the families. Known rules support AlphaZero's search, learned state-space dynamics support PETS and MBPO, and a known physics model can be combined with learned corrections.
 
-A **state-space model** predicts supplied variables such as positions and velocities. A **latent model** predicts how a learned internal state evolves. When current observations provide only part of the needed information, that state must retain useful history. This representation can support different families: **PlaNet** uses latent predictions for MPC, **Dreamer** uses them to learn an actor and critic in imagination, and **TD-MPC** uses them for planning with a terminal value estimate. In ordinary interaction, Dreamer updates its internal state from each new observation before the actor chooses an action. The [Latent Model-Based RL](/docs/04-model-based/latent-model-based-rl) chapter compares these control loops and explains the connection to broader world-model research.
+A **state-space model** predicts supplied variables such as positions and velocities. A **latent model** predicts a compact learned internal state. When current observations provide only part of the needed information, that state can summarize useful history. **PlaNet** uses latent predictions for MPC, **Dreamer** uses them to learn an actor and critic in imagination, and **TD-MPC** plans in latent space with a terminal value estimate. An **observation-space model** predicts observations directly, for example future image frames. These representations describe what the model predicts; they do not by themselves say whether it plans at decision time or trains a policy in the background. The [Latent Model-Based RL](/docs/04-model-based/latent-model-based-rl) chapter compares these representations and control loops.
 
 A **deterministic model** predicts one successor for a state-action pair. A **probabilistic model** predicts a distribution of possible outcomes. An **ensemble** fits several models, whose disagreement can indicate uncertainty due to limited data. PETS combines probabilistic members with an ensemble and propagates their predictions through candidate trajectories. MBPO uses a related model family to generate training transitions. Randomness within the predicted outcomes and disagreement between fitted models describe different sources of uncertainty. Their usefulness for control depends on how well they reflect the errors the agent actually encounters.
 
@@ -181,7 +194,7 @@ A **deterministic model** predicts one successor for a state-action pair. A **pr
 
 In **online model-based RL**, the agent continues collecting real transitions and updating its model or behavior. In **offline model-based RL**, the dataset is fixed, so planning and policy improvement must rely on its coverage. Unsupported actions can look attractive because of errors in predicted rewards, transitions, or values. Methods such as **MOPO**, **MOReL**, and **COMBO** add mechanisms that discourage excessive trust in those predictions. This learning setting is a separate choice from on-policy or off-policy updates. MBPO combines online interaction with an off-policy SAC learner that reuses replay data. The [offline chapter](/docs/04-model-based/offline-model-based-rl) contrasts MOPO's policy learning with MBOP's offline-trained planner.
 
-The practical three-axis description is therefore **model use × model representation × data regime**. Background training can generate experience or pass gradients through predictions; decision-time planning compares futures for the current action. PlaNet and Dreamer share latent modeling but use it differently. MOPO and MBOP both learn offline but choose real actions differently.
+The practical three-axis description is **model use × model representation × data regime**. The table above gives the categories and representative methods on each axis. PlaNet and Dreamer both use latent models, but PlaNet plans at decision time while Dreamer primarily learns its actor and critic from imagined experience. MOPO and MBOP both learn offline, yet use their models in different ways to choose real actions.
 
 Sim-to-real describes transfer, rather than one of these model-use mechanisms. For example, training PPO in a simulator and transferring its policy to a robot can remain model-free: the simulator supplies experience to PPO. Explicitly using dynamics predictions for search, generated learning targets, or dynamics gradients introduces a model-based component.
 
