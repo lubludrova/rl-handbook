@@ -1,0 +1,181 @@
+---
+title: Model-Based Framework
+description: "Decision-time planning and learning with models: the families, their subdivisions, and the models they use."
+---
+
+> **Abstract.** Model-based reinforcement learning uses predictions of an action's consequences to help choose actions or improve a policy. We begin with environment dynamics, feedback, and the connection to dynamic programming, then map the algorithm families: how they use predictions to plan actions or learn behavior, and what they need a model to predict.
+
+## What is Model-based Reinforcement Learning?
+
+A robot approaching a doorway can try a movement and learn from what happens. If it can predict the consequences, it can also compare possible movements before trying them. **Model-based RL** uses a known or learned description of the environment to support decisions or learning in this way.
+
+One option is to use the model to compare possible movements before each action. Another is to use model predictions during training: simulated transitions help improve a **policy**. For example, [MBPO](/docs/04-model-based/dyna-and-learned-models#mbpo-short-rollouts-many-learning-updates) trains a policy on real and model-generated transitions. When acting, the policy chooses an action from the current state without predicting future trajectories. We will first introduce the environment and control loop, then connect these ideas to dynamic programming and map the algorithm families.
+
+### Deterministic and Stochastic Environments
+
+Let us return to the [Small GridWorld example from the introduction](/docs/00-introduction/what-is-reinforcement-learning#example-small-gridworld). With **deterministic dynamics**, the same state and action always lead to the same next state: $s_{t+1}=f(s_t,a_t)$. Choosing right from cell 5 always takes the agent to cell 6. With **stochastic dynamics**, that same state and action can lead to different outcomes: $s_{t+1}\sim p(\cdot\mid s_t,a_t)$. If we add slipping to the grid, choosing right might move the agent right or send it sideways. This distinction describes how predictable the environment's response is once an action has been chosen. A policy can choose its actions randomly in either kind of environment. Even when each action has a fixed outcome, the agent may have to discover that rule through experience. In a stochastic environment, it can learn how likely each outcome is. Rewards can vary too: even when a movement always reaches the same cell, its reward may differ between attempts.
+
+<svg role="img" aria-label="Small GridWorld from the introduction: a four-by-four grid with two terminal corners, four movement directions, and a reward of minus one per step." width="640" height="248" viewBox="0 0 640 248" xmlns="http://www.w3.org/2000/svg" style={{display:'block',maxWidth:'100%',height:'auto',margin:'1.5rem auto'}}>
+  <defs>
+    <marker id="mbrl-gridworld-arrowhead" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6 Z" fill="var(--color-fd-foreground)"/>
+    </marker>
+  </defs>
+  <line x1="72" y1="124" x2="72" y2="86" stroke="var(--color-fd-foreground)" strokeWidth="1.5" markerEnd="url(#mbrl-gridworld-arrowhead)"/>
+  <line x1="72" y1="124" x2="72" y2="162" stroke="var(--color-fd-foreground)" strokeWidth="1.5" markerEnd="url(#mbrl-gridworld-arrowhead)"/>
+  <line x1="72" y1="124" x2="34" y2="124" stroke="var(--color-fd-foreground)" strokeWidth="1.5" markerEnd="url(#mbrl-gridworld-arrowhead)"/>
+  <line x1="72" y1="124" x2="110" y2="124" stroke="var(--color-fd-foreground)" strokeWidth="1.5" markerEnd="url(#mbrl-gridworld-arrowhead)"/>
+  <text x="72" y="196" textAnchor="middle" fontSize="11" fontFamily="var(--font-code)" fill="var(--color-fd-muted-foreground)">actions</text>
+  <rect x="160" y="12" width="56" height="56" fill="var(--color-fd-secondary)" stroke="var(--color-fd-border)" strokeWidth="1.5"/>
+  <rect x="216" y="12" width="56" height="56" fill="var(--color-fd-card)" stroke="var(--color-fd-border)" strokeWidth="1.5"/>
+  <rect x="272" y="12" width="56" height="56" fill="var(--color-fd-card)" stroke="var(--color-fd-border)" strokeWidth="1.5"/>
+  <rect x="328" y="12" width="56" height="56" fill="var(--color-fd-card)" stroke="var(--color-fd-border)" strokeWidth="1.5"/>
+  <rect x="160" y="68" width="56" height="56" fill="var(--color-fd-card)" stroke="var(--color-fd-border)" strokeWidth="1.5"/>
+  <rect x="216" y="68" width="56" height="56" fill="var(--color-fd-card)" stroke="var(--color-fd-border)" strokeWidth="1.5"/>
+  <rect x="272" y="68" width="56" height="56" fill="var(--color-fd-card)" stroke="var(--color-fd-border)" strokeWidth="1.5"/>
+  <rect x="328" y="68" width="56" height="56" fill="var(--color-fd-card)" stroke="var(--color-fd-border)" strokeWidth="1.5"/>
+  <rect x="160" y="124" width="56" height="56" fill="var(--color-fd-card)" stroke="var(--color-fd-border)" strokeWidth="1.5"/>
+  <rect x="216" y="124" width="56" height="56" fill="var(--color-fd-card)" stroke="var(--color-fd-border)" strokeWidth="1.5"/>
+  <rect x="272" y="124" width="56" height="56" fill="var(--color-fd-card)" stroke="var(--color-fd-border)" strokeWidth="1.5"/>
+  <rect x="328" y="124" width="56" height="56" fill="var(--color-fd-card)" stroke="var(--color-fd-border)" strokeWidth="1.5"/>
+  <rect x="160" y="180" width="56" height="56" fill="var(--color-fd-card)" stroke="var(--color-fd-border)" strokeWidth="1.5"/>
+  <rect x="216" y="180" width="56" height="56" fill="var(--color-fd-card)" stroke="var(--color-fd-border)" strokeWidth="1.5"/>
+  <rect x="272" y="180" width="56" height="56" fill="var(--color-fd-card)" stroke="var(--color-fd-border)" strokeWidth="1.5"/>
+  <rect x="328" y="180" width="56" height="56" fill="var(--color-fd-secondary)" stroke="var(--color-fd-border)" strokeWidth="1.5"/>
+  <text x="244" y="45" textAnchor="middle" fontSize="13" fontFamily="var(--font-code)" fill="var(--color-fd-foreground)">1</text>
+  <text x="300" y="45" textAnchor="middle" fontSize="13" fontFamily="var(--font-code)" fill="var(--color-fd-foreground)">2</text>
+  <text x="356" y="45" textAnchor="middle" fontSize="13" fontFamily="var(--font-code)" fill="var(--color-fd-foreground)">3</text>
+  <text x="188" y="101" textAnchor="middle" fontSize="13" fontFamily="var(--font-code)" fill="var(--color-fd-foreground)">4</text>
+  <text x="244" y="101" textAnchor="middle" fontSize="13" fontFamily="var(--font-code)" fill="var(--color-fd-foreground)">5</text>
+  <text x="300" y="101" textAnchor="middle" fontSize="13" fontFamily="var(--font-code)" fill="var(--color-fd-foreground)">6</text>
+  <text x="356" y="101" textAnchor="middle" fontSize="13" fontFamily="var(--font-code)" fill="var(--color-fd-foreground)">7</text>
+  <text x="188" y="157" textAnchor="middle" fontSize="13" fontFamily="var(--font-code)" fill="var(--color-fd-foreground)">8</text>
+  <text x="244" y="157" textAnchor="middle" fontSize="13" fontFamily="var(--font-code)" fill="var(--color-fd-foreground)">9</text>
+  <text x="300" y="157" textAnchor="middle" fontSize="13" fontFamily="var(--font-code)" fill="var(--color-fd-foreground)">10</text>
+  <text x="356" y="157" textAnchor="middle" fontSize="13" fontFamily="var(--font-code)" fill="var(--color-fd-foreground)">11</text>
+  <text x="188" y="213" textAnchor="middle" fontSize="13" fontFamily="var(--font-code)" fill="var(--color-fd-foreground)">12</text>
+  <text x="244" y="213" textAnchor="middle" fontSize="13" fontFamily="var(--font-code)" fill="var(--color-fd-foreground)">13</text>
+  <text x="300" y="213" textAnchor="middle" fontSize="13" fontFamily="var(--font-code)" fill="var(--color-fd-foreground)">14</text>
+  <text x="528" y="112" textAnchor="middle" fontSize="14" fontFamily="var(--font-code)" fill="var(--color-fd-foreground)">
+    <tspan>R</tspan><tspan dy="4" fontSize="10">t</tspan><tspan dy="-4"> = −1</tspan>
+  </text>
+  <text x="528" y="134" textAnchor="middle" fontSize="11" fontFamily="var(--font-code)" fill="var(--color-fd-muted-foreground)">on all transitions</text>
+</svg>
+
+In practice, we often model uncertain effects such as slipping, wind, and variable contacts with stochastic dynamics. A planned sequence can then take the agent to a different state than expected, leaving later actions poorly suited to its actual situation. This leads to a simple question: if we know how the environment works, can we plan all our actions in advance and then just carry them out?
+
+### Open-Loop and Closed-Loop Control
+
+**Open-loop control** chooses an action sequence from the initial state and executes it without adjusting the remaining actions to new observations. For the robot, this might mean “move forward, turn, move forward” even if the first movement falls short. With exact deterministic dynamics and a known initial state, an accurate plan can work as predicted. Disturbances or prediction errors can make its remaining actions inappropriate.
+
+**Closed-loop control** uses feedback: the agent observes the result of an action and uses it to choose the next one. Suppose the robot moves less than expected while approaching a doorway. An open-loop controller continues to the next command in its original sequence. A closed-loop controller checks the robot's position and can move it farther forward before turning. The next action can come from a learned policy, a simple rule, or a new plan. Both open-loop and closed-loop control can be used with deterministic or stochastic dynamics. However, if the deterministic dynamics and initial state are known exactly, and actions are executed precisely, a complete open-loop plan can be sufficient. The agent follows its predicted trajectory, so feedback has no deviations to correct. In practice, approximate models or uncertain state estimates can create deviations even in a deterministic environment, and feedback helps correct them.
+
+**Model predictive control (MPC)** is one way to implement closed-loop control. It uses feedback by planning again from the latest observed state. At each real interaction step:
+
+1. Observe the current state and plan a sequence of $H$ actions using predicted consequences.
+2. Execute **only the first action** in the environment.
+3. Observe the actual next state.
+4. Plan again from that state, looking $H$ steps ahead once more.
+
+<img
+  src="/docs-assets/04-model-based/model-based-rl-framework/planning-and-interaction.png"
+  alt="In both panels, an agent imagines trajectories in an environment model before acting in the real environment. Open-loop execution follows the whole plan. MPC executes one action and uses the observed next state to plan again."
+  style={{ maxWidth: '100%', margin: '2rem auto', display: 'block' }}
+/>
+
+In the figure, the thought bubble shows predictions from the model, and the room on the right shows real interaction. The open-loop controller executes its planned sequence. MPC returns to planning after each real step. Its horizon moves forward with each observation, hence **receding-horizon control**. The remaining actions may serve as a starting point for the next plan, which is updated using the actual state. Each individual plan can be an open-loop sequence while the overall controller is closed-loop.
+
+Replanning lets the robot react when it moves less than predicted. The quality of its decisions still depends on the model's accuracy and the planner's ability to find useful actions. MPC also works with deterministic dynamics and can run with fixed, known rules as a standalone planning procedure.
+
+### Back to Dynamic Programming
+
+In [dynamic programming](/docs/01-value-based/dynamic-programming), we already used **model-based planning**: we were given the transition probabilities $p(s'\mid s,a)$ and the reward rules. This model let us compute which states each action could reach, how likely those outcomes were, and which rewards they would produce. Policy iteration used this information to evaluate a policy and then improve it. Value iteration folded the improvement step into each backup. The basic computation was one step of lookahead. For a finite MDP, define
+
+$$
+Q_V(s,a)=\sum_{s',r}p(s',r\mid s,a)\left[r+\gamma V(s')\right].
+$$
+
+Here $Q_V$ scores an action using the immediate reward and the current estimate $V$ of the return after it. Terminal states have continuation value zero. The model supplies the outcomes. The value function supplies their future value. Improving a policy means putting more weight on actions with larger $Q_V(s,a)$.
+
+The later model-free chapters removed the requirement to know $p(s',r\mid s,a)$. Q-learning learned action values from sampled transitions. Policy-gradient and actor-critic methods learned policies from experience. Model-based methods return to the predictive part of the computation: use a model to work out consequences that would otherwise require another interaction with the environment. Two difficulties change the form of that computation. First, unknown dynamics must be learned from data. Second, even with exact rules, a large state space makes full dynamic-programming sweeps impractical. A robot illustrates the first problem. Chess illustrates the second. Different families of model-based methods arise from different ways of handling these two difficulties.
+
+## What Can a Model-Based Agent Learn?
+
+Dynamic programming gave us three useful ingredients: a model of the environment, a value function, and a policy. When the environment is initially unknown, the agent can learn several of these components from experience. For the robot approaching a doorway, learning the model means discovering how its commands change its position. Learning a value function means estimating how useful a position or movement is for reaching the goal. Learning a policy means improving the rule that chooses the next movement.
+
+| Learned component | What it should capture | What provides the training signal |
+|---|---|---|
+| Environment model | The next state, reward, and episode termination after an action | Observed transitions, with known rules used where available |
+| State representation | Information from observations and history needed for prediction and control | Observation sequences and prediction or control objectives |
+| Value function | The expected return from a state or action under a policy | Real or predicted rewards, often combined with a bootstrap estimate |
+| Policy | Actions that lead to higher expected return | Value estimates, predicted trajectories, or recommendations from a planner |
+
+These components have different jobs, and an algorithm can learn several of them together. Real observations teach the model what actions actually do. Once fitted, the model can generate experience or training targets for a value function and policy. If the robot receives images, it may also need to learn a useful internal state. A sequence of images can reveal both its distance from the doorway and whether it is still moving toward it. This representation is often learned together with the dynamics and reward predictions.
+
+Some components can be supplied in advance. Known game rules already provide a transition model. A planner can choose actions directly, while another agent can act through a learned policy. Learning and real interaction can alternate throughout training. The important question is which component an update changes: predictions of the environment, estimates of return, or the rule for choosing actions.
+
+## Families of Model-Based Methods
+
+We can now ask how these components work together in a complete agent. For this handbook, we group methods into two broad families by how they use model predictions to improve behavior. In **background training**, predictions help improve values or a policy that will guide later actions. In **decision-time planning**, predictions help choose the next action from the current state. Both uses can be combined in one agent.
+
+| Family | Main computation | What is learned? | Representative methods |
+|---|---|---|---|
+| Background training | Use predictions to update a value function or policy | Values, a policy, or both. Often an environment model as well | Dyna-Q, MBPO, Dreamer (covered in [Latent Model-Based RL](/docs/04-model-based/latent-model-based-rl#dreamer-turn-imagination-into-an-actor-critic)) |
+| Decision-time planning | Use model-based search or optimization to choose the next action | The model can be known or learned. Policy and value functions can also be learned to support planning | PETS, PlaNet, TD-MPC, MCTS, AlphaZero, MuZero |
+
+### Family 1: Background Training
+
+Imagine that a robot has explored a corridor and finally found its exit. Its latest real transition improves the value of the last movement. The learned model also remembers how earlier positions connect. **Dyna-Q** queries those remembered transitions and applies additional Q-learning updates, allowing the new reward information to spread backward through the corridor. We will work through this update in the [Dyna-Q section](/docs/04-model-based/dyna-and-learned-models#dyna-q-one-update-rule-two-sources-of-transitions). Real and modeled transitions use the same update rule. The resulting $Q$ table guides the robot's next real action. These extra computations with the model are Dyna's **planning steps**: their result is stored in values that the agent can use again.
+
+**Model-Based Policy Optimization (MBPO)** develops this idea for continuous states and neural networks. We will study it in the [MBPO section of the next chapter](/docs/04-model-based/dyna-and-learned-models#mbpo-short-rollouts-many-learning-updates). It fits a dynamics model to real transitions, starts short predicted trajectories from recorded states, and supplies the resulting transitions to SAC. The actor and critic learn from a mixture of real and model-generated experience. When the robot next acts, the actor receives its current state and produces an action. The model has helped improve the behavior that the actor now expresses.
+
+**Dreamer** learns an actor and critic through imagined trajectories in a learned internal state. We will study this approach in [Latent Model-Based RL](/docs/04-model-based/latent-model-based-rl#dreamer-turn-imagination-into-an-actor-critic). The model predicts future states and rewards, the critic learns from the resulting return targets, and the actor learns to choose actions with higher expected return. DreamerV1 also uses gradients of predicted return through the model to improve its actor. These examples show several contributions a model can make during training: additional transitions, return targets, and gradients for policy improvement.
+
+### Family 2: Decision-Time Planning
+
+The agent uses the model to investigate possible consequences of actions from its current state, then chooses its next action from that computation. We will develop two common approaches: trajectory planning and tree search.
+
+#### Trajectory Planning and MPC
+
+Return to the robot at the doorway. With a model, it can propose several short sequences of movements, predict where each would take it, and score their progress toward the goal. **Trajectory optimization** searches for a sequence with a good predicted outcome. After choosing one, an MPC controller executes its first action, observes the new position, and solves the planning problem again. The immediate result of these computations is the robot's next movement.
+
+The sequence can be improved in different ways. With useful derivatives, methods such as **iLQR** and **DDP** refine a trajectory through local approximations of dynamics and cost. **Random shooting** samples candidate sequences and keeps the best. The **cross-entropy method (CEM)** repeatedly samples candidates and concentrates its sampling distribution around the best ones. These are ways to find a plan. MPC specifies how planning is repeated as new observations arrive. When dynamics are unknown, **PETS** learns a probabilistic ensemble and evaluates candidates using trajectories sampled through its models.
+
+A short horizon reduces computation and accumulated prediction error, but can miss a useful consequence farther ahead. **TD-MPC** combines a short predicted trajectory with a learned value estimate for its endpoint. Its learned policy also proposes promising actions to the planner. The [Planning and Model Predictive Control](/docs/04-model-based/model-predictive-control) chapter develops feedback control, trajectory optimization, CEM, and PETS. The [TD-MPC discussion](/docs/04-model-based/latent-model-based-rl#td-mpc-short-predictions-long-term-values) then explains the combination with learned values. Across these methods, planning quality depends on both the model's predictions and the optimizer's ability to find useful sequences within the available time.
+
+#### Tree Search and Learning from Search
+
+In a board game, every move opens a new set of possible replies. A move that looks good now may allow the opponent to win a few turns later. A **search tree** organizes these continuations as states connected by actions. **Monte Carlo tree search (MCTS)** repeatedly follows selected branches, expands a successor, evaluates the resulting position, and backs its estimate up through the visited path. Its visit counts and value estimates help choose the next real move. The central problem is how to spend limited computation among competing branches.
+
+Learning makes this search more selective. A policy can suggest promising moves, and a value function can estimate an unfinished position. **AlphaGo** combined learned guidance with game-tree search. **AlphaGo Zero** and **AlphaZero** developed a self-play loop in which search also teaches the network. Root visit counts provide a policy target, while game outcomes train the value estimate. The improved network guides later searches. This creates a cycle between local investigation and reusable knowledge, with the known rules supplying the game transitions.
+
+**MuZero** also learns the transitions used inside the tree. It encodes the available history, predicts latent successors and rewards after hypothetical actions, and evaluates those successors with policy and value heads. The learned model makes search possible in that internal representation, while its errors can change which branches look promising. The [Tree Search: From MCTS to MuZero](/docs/04-model-based/alphazero-and-muzero) chapter follows the search procedure, self-play, policy and value targets, and learned dynamics. The action-selection loop remains visible throughout: observe the situation, search possible continuations, choose a move, and observe again.
+
+These two families can work together. AlphaZero uses its learned policy and value function to guide search, then trains them using search results and game outcomes. TD-MPC learns a policy and action values that support trajectory planning. The learned components can overlap across the families. To understand an agent, trace how its model predictions contribute to training and to its next real action.
+
+## Model Choices and Learning Settings
+
+The families describe how predictions contribute to behavior. We can further describe an agent by identifying where its model comes from, what it predicts, how it represents uncertainty, and which data are available for learning. These choices apply across the families. Known rules support AlphaZero's search, learned state-space dynamics support PETS and MBPO, and a known physics model can be combined with learned corrections.
+
+A **state-space model** predicts supplied variables such as positions and velocities. A **latent model** predicts how a learned internal state evolves. When current observations provide only part of the needed information, that state must retain useful history. This representation can support different families: **PlaNet** uses latent predictions for MPC, **Dreamer** uses them to learn an actor and critic in imagination, and **TD-MPC** uses them for planning with a terminal value estimate. In ordinary interaction, Dreamer updates its internal state from each new observation before the actor chooses an action. The [Latent Model-Based RL](/docs/04-model-based/latent-model-based-rl) chapter compares these control loops and explains the connection to broader world-model research.
+
+A **deterministic model** predicts one successor for a state-action pair. A **probabilistic model** predicts a distribution of possible outcomes. An **ensemble** fits several models, whose disagreement can indicate uncertainty due to limited data. PETS combines probabilistic members with an ensemble and propagates their predictions through candidate trajectories. MBPO uses a related model family to generate training transitions. Randomness within the predicted outcomes and disagreement between fitted models describe different sources of uncertainty. Their usefulness for control depends on how well they reflect the errors the agent actually encounters.
+
+<span id="what-changes-offline" />
+
+In **online model-based RL**, the agent continues collecting real transitions and updating its model or behavior. In **offline model-based RL**, the dataset is fixed, so planning and policy improvement must rely on its coverage. Unsupported actions can look attractive because of errors in predicted rewards, transitions, or values. Methods such as **MOPO**, **MOReL**, and **COMBO** add mechanisms that discourage excessive trust in those predictions. This learning setting is a separate choice from on-policy or off-policy updates. MBPO combines online interaction with an off-policy SAC learner that reuses replay data.
+
+<span id="choosing-a-family-and-evaluating-the-choice" />
+
+## A Map of the Chapters Ahead
+
+The next chapter develops background training. Two chapters then cover decision-time planning through trajectory optimization and tree search. The final chapter examines how learned internal states and their dynamics support both families:
+
+| Chapter | Main question | Methods that develop the answer |
+|---|---|---|
+| [Dyna and Learning Policies with Models](/docs/04-model-based/dyna-and-learned-models) | How do model predictions become updates to reusable values and policies? | Dyna-Q, prioritized sweeping, MBPO, and other model-assisted learning signals |
+| [Planning and Model Predictive Control](/docs/04-model-based/model-predictive-control) | How do a model, objective, and optimizer produce actions with feedback? | LQR, iLQR/DDP, random shooting, CEM, PETS |
+| [Tree Search: From MCTS to MuZero](/docs/04-model-based/alphazero-and-muzero) | How does search choose actions and teach a network? | MCTS, AlphaGo, AlphaGo Zero, AlphaZero, MuZero |
+| [Latent Model-Based RL](/docs/04-model-based/latent-model-based-rl) | How do learned representations support different ways of controlling an agent? | PlaNet, Dreamer, TD-MPC, and wider world-model connections |
+
+For each method, trace one prediction through the computation that uses it. Identify what the agent learns, how it chooses the next real action, and where an inaccurate prediction could change that action. Real return, real-interaction cost, training computation, and action-selection time then help assess whether the model improves the complete agent.
