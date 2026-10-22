@@ -55,7 +55,7 @@ This handbook gives a comprehensive, up-to-date guide to reinforcement learning 
 
 ### Model-Based
 
-To be done soon.
+Done.
 
 ### Advanced Topics
 
@@ -70,7 +70,7 @@ content/docs/<section>/<chapter>/
 ├── index.mdx              chapter source
 ├── <chapter>.py           runnable example (when present)
 └── figures/               images, gifs, diagrams
-```
+```  
 
 Supporting code lives outside `content/`:
 
