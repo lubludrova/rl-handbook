@@ -14,6 +14,7 @@
     "postinstall": "fumadocs-mdx",
     "lint": "eslint",
     "test:bellman": "node --test src/components/bellman-playground/model.test.mjs",
+    "test:security": "node --test scripts/security-dependencies.test.mjs",
     "analyze": "ANALYZE=true next build"
   },
   "dependencies": {
@@ -22,9 +23,9 @@
     "fumadocs-core": "16.14.4",
     "fumadocs-mdx": "15.2.3",
     "fumadocs-ui": "16.14.4",
-    "katex": "^0.16.42",
+    "katex": "^0.18.10",
     "lucide-react": "^0.577.0",
-    "next": "16.2.1",
+    "next": "16.4.2",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "rehype-katex": "^7.0.1",
@@ -33,16 +34,22 @@
     "tailwind-merge": "^3.5.0"
   },
   "devDependencies": {
-    "@next/bundle-analyzer": "^16.2.4",
-    "@tailwindcss/postcss": "^4.2.2",
+    "@next/bundle-analyzer": "^16.4.2",
+    "@tailwindcss/postcss": "^4.3.3",
     "@types/mdx": "^2.0.13",
     "@types/node": "^25.5.0",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
-    "eslint": "^9.39.4",
-    "eslint-config-next": "16.2.1",
-    "postcss": "^8.5.8",
-    "tailwindcss": "^4.2.2",
+    "eslint": "^9.39.5",
+    "eslint-config-next": "16.4.2",
+    "postcss": "^8.5.31",
+    "tailwindcss": "^4.3.3",
     "typescript": "^5.9.3"
+  },
+  "pnpm": {
+    "overrides": {
+      "katex": "$katex",
+      "@next/eslint-plugin-next@16.4.2>fast-glob": "npm:tinyglobby@0.2.17"
+    }
   }
 }
