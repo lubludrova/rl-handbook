@@ -64,8 +64,22 @@ const config = {
     ];
   },
   async redirects() {
+    const modelBasedChapters = {
+      'learning-dynamics-models': 'model-based-rl-framework',
+      'model-based-policy-optimization': 'dyna-and-learned-models',
+      'world-models-and-latent-dynamics': 'latent-model-based-rl',
+      dreamer: 'latent-model-based-rl',
+      'latent-planning-and-td-mpc': 'latent-model-based-rl',
+      'world-model-frontiers': 'latent-model-based-rl',
+      'evaluating-model-based-agents': 'model-based-rl-framework#choosing-a-family-and-evaluating-the-choice',
+    };
     // Keep links to the retired Russian translation pointing to English.
     return [
+      ...Object.entries(modelBasedChapters).map(([previous, current]) => ({
+        source: `/docs/04-model-based/${previous}`,
+        destination: `/docs/04-model-based/${current}`,
+        permanent: true,
+      })),
       {
         source: '/ru',
         destination: '/',

@@ -128,11 +128,13 @@ const chaptersEn: {
   {
     title: 'Model-Based',
     slug: '04-model-based',
-    comingSoon: true,
     pages: [
-      { title: 'Dyna and Learned Models', slug: 'dyna-and-learned-models' },
-      { title: 'Model Predictive Control', slug: 'model-predictive-control' },
-      { title: 'AlphaZero and MuZero', slug: 'alphazero-and-muzero' },
+      { title: 'Model-Based Framework', slug: 'model-based-rl-framework' },
+      { title: 'Tree Search: From MCTS to MuZero', slug: 'alphazero-and-muzero' },
+      { title: 'Dyna and Learning Policies with Models', slug: 'dyna-and-learned-models' },
+      { title: 'Planning and Model Predictive Control', slug: 'model-predictive-control' },
+      { title: 'Latent Model-Based RL: PlaNet, Dreamer, and TD-MPC', slug: 'latent-model-based-rl' },
+      { title: 'Offline Model-Based RL', slug: 'offline-model-based-rl' },
     ],
   },
   {

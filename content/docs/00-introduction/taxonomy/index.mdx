@@ -16,11 +16,11 @@ A **model** in RL is an explicit representation of the environment's dynamics: g
 
 **Model-based** methods use or learn such a representation. With a model, the agent can simulate future trajectories without interacting with the real environment: it can plan ahead. The benefit is **sample efficiency**: each real interaction can be leveraged to generate many synthetic training examples. The risk is **model bias**: if the learned model is wrong, the policy will exploit that inaccuracy rather than solving the real problem. A model that slightly underestimates the cost of a dangerous action, for example, will produce a policy that reliably takes that action, because the policy optimizes against the model, not the true environment.
 
-**Model-free** methods learn directly from interaction, without building an explicit dynamics model. They are conceptually simpler and don't have model errors (just because we don't try to model the environment). The cost is **sample efficiency**: every gradient update requires real environment experience, which may be expensive or slow to collect.
+**Model-free** methods learn values or policies without using a forward dynamics model for those updates. They can reuse experience through replay; a gradient update does not require a new interaction. They avoid learned transition-model error but still face value approximation, optimization, and data-coverage errors.
 
-In practice, the choice comes down to whether an accurate environment model is available or learnable. Board games are the natural home for model-based methods: the rules of chess or Go are exact and give the agent a free simulator. AlphaGo Zero exploits this fully: at each move, MCTS simulates many games from the current position using the game rules as the model. Model-free methods dominate wherever the environment resists accurate simulation: raw-pixel Atari, continuous robotic locomotion, and many language-model fine-tuning setups. The cost for that is sample efficiency: a pure model-free agent needed 25 episodes to solve a simple grid-world; model-based agent with 50 planning steps per real interaction solved it in 3: nearly eight times more sample-efficient.
+Known game rules make planning natural in chess and Go, while learned models also support visual and continuous control. [PETS](/docs/04-model-based/model-predictive-control), [Dreamer](/docs/04-model-based/latent-model-based-rl), and [TD-MPC](/docs/04-model-based/latent-model-based-rl) illustrate different uses. Whether modeling helps depends on predictive accuracy, the controller, and the data and compute budgets; sample-efficiency improvements are empirical results under a specified protocol.
 
-This handbook covers model-free methods first, as they are more widely used, better analyzed, and provide the conceptual foundation that model-based methods extend. Model-based methods have their own dedicated section later.
+The handbook first develops Bellman planning and sample-based value/policy learning. The [model-based section](/docs/04-model-based/model-based-rl-framework) then combines these foundations with learned predictions.
 
 ## Where Does the Data Come From?
 
@@ -76,19 +76,19 @@ Most practical policy-based methods therefore become **actor-critic** methods in
 This gives the main split inside the policy-based family. **On-policy policy-based methods** collect fresh rollouts from the current policy, estimate advantages, update the actor, and discard the batch. A2C and A3C introduce the actor-critic pattern with bootstrapped advantage estimates; TRPO and PPO then focus on controlling how far the policy moves in one update. **Off-policy policy-based methods** trade that clean data assumption for replay-based sample reuse. DDPG learns a deterministic actor as a differentiable replacement for $\arg\max_a Q(s,a)$, TD3 stabilizes that template with twin critics and delayed actor updates, and SAC makes the actor stochastic under a maximum-entropy objective.
 ## Inside Model-Based
 
-Model-based methods also divide into two distinct strategies based on *when* the model is used.
+Two useful model-use patterns concern *when* predictions are used. They can coexist: search can generate policy targets, and a learned policy can guide search.
 ### Decision-Time Planning
 
 In **decision-time planning**, the agent runs a search procedure at each step using the model to simulate possible futures, then acts based on that search. The canonical algorithm is **Monte Carlo Tree Search (MCTS)**: thousands of simulated trajectories from the current state are used to estimate action values, and the best action is selected.
 
-**AlphaGo Zero** uses this approach with a learned evaluation network. At each move, MCTS guided by the network simulates 1600 games from the current board position and returns an improved policy. Training then adjusts the network toward this stronger MCTS-derived policy, implementing policy iteration with search as the improvement operator.
+**AlphaGo Zero** uses this approach with a learned policy/value network. Search expands selected continuations using game rules and estimates leaf values with the network; a simulation need not play an entire game. The resulting search preferences supervise the policy, producing an approximate policy-iteration loop.
 
-Decision-time planning is most natural when the model is given (game rules), actions are discrete, and inference time is not a bottleneck.
+Tree search is natural for discrete actions with known rules. MPC also performs decision-time planning with continuous actions and learned dynamics. Both require an adequate acting-compute budget.
 ### Background Training (Dyna Style)
 
 In **background training**, the model generates synthetic experience to augment the data available to a model-free learner. This idea was introduced in 1990 as **Dyna**: a Q-learner interleaved with simulated updates from a learned model, sharing the same value function.
 
-Modern instantiations include **MBPO**, which uses short model-generated rollouts from a replay buffer to train model-free actor-critic (SAC), and **Dreamer**, which trains an actor-critic entirely inside a learned latent world model using analytic value gradients through the model. The appeal is sample efficiency: a good model generates thousands of cheap synthetic transitions for every expensive real one.
+Modern examples include [MBPO](/docs/04-model-based/dyna-and-learned-models), which supplies short synthetic transitions to SAC, and [Dreamer](/docs/04-model-based/latent-model-based-rl), which learns behavior from latent imagination. Dreamer versions differ in their actor-gradient estimators: V1 uses dynamics gradients for continuous control, while V3 uses a REINFORCE surrogate for both action types. Additional model uses include value targets and planner-generated supervision. The benefit must be assessed against model bias and extra computation.
 
 ## A Compact Map of the Field
 

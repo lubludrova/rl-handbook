@@ -71,13 +71,13 @@ export const familyMeta: Record<FamilyId, FamilyMeta> = {
     label: 'Decision-Time Planning',
     blurb:
       'Use a model while choosing the next action: simulate possible futures from the current state, run search or optimization, then act on the best plan.',
-    comingSoon: true,
+    href: '/docs/04-model-based/model-predictive-control',
   },
   background: {
     label: 'Background Training',
     blurb:
       'Use a learned model away from the environment to create synthetic experience, then train a value function or actor-critic on those imagined transitions.',
-    comingSoon: true,
+    href: '/docs/04-model-based/dyna-and-learned-models',
   },
 };
 
@@ -425,7 +425,7 @@ export const nodes: MapNode[] = [
     kind: 'algorithm',
     family: 'background',
     status: 'classic',
-    comingSoon: true,
+    href: '/docs/04-model-based/dyna-and-learned-models',
     tags: ['model-based'],
     model: 'learned',
     actions: 'discrete',
@@ -444,7 +444,7 @@ export const nodes: MapNode[] = [
     kind: 'algorithm',
     family: 'planning',
     status: 'active',
-    comingSoon: true,
+    href: '/docs/04-model-based/model-predictive-control',
     tags: ['model-based'],
     model: 'exact',
     actions: 'continuous',
@@ -461,7 +461,7 @@ export const nodes: MapNode[] = [
     kind: 'algorithm',
     family: 'planning',
     status: 'active',
-    comingSoon: true,
+    href: '/docs/04-model-based/alphazero-and-muzero',
     tags: ['model-based'],
     model: 'exact',
     actions: 'discrete',
@@ -478,7 +478,7 @@ export const nodes: MapNode[] = [
     kind: 'algorithm',
     family: 'planning',
     status: 'active',
-    comingSoon: true,
+    href: '/docs/04-model-based/alphazero-and-muzero',
     tags: ['model-based'],
     model: 'exact',
     actions: 'discrete',
@@ -495,7 +495,7 @@ export const nodes: MapNode[] = [
     kind: 'algorithm',
     family: 'planning',
     status: 'active',
-    comingSoon: true,
+    href: '/docs/04-model-based/alphazero-and-muzero',
     tags: ['model-based'],
     model: 'learned',
     actions: 'discrete',
@@ -512,7 +512,7 @@ export const nodes: MapNode[] = [
     kind: 'algorithm',
     family: 'background',
     status: 'active',
-    comingSoon: true,
+    href: '/docs/04-model-based/dyna-and-learned-models',
     tags: ['model-based'],
     model: 'learned',
     actions: 'continuous',
@@ -529,7 +529,7 @@ export const nodes: MapNode[] = [
     kind: 'algorithm',
     family: 'background',
     status: 'active',
-    comingSoon: true,
+    href: '/docs/04-model-based/latent-model-based-rl',
     tags: ['model-based'],
     model: 'learned',
     actions: 'both',
@@ -771,8 +771,12 @@ export function localize(lang: UILang) {
       nodeById: new Map(nodes.map((n) => [n.id, n])),
     };
   }
+  // Model-based chapters are currently available only in English.
+  const englishOnlyFamilies: FamilyId[] = ['planning', 'background'];
   const lNodes = nodes.map((n) => ({
     ...n,
+    href: englishOnlyFamilies.includes(n.family) ? undefined : n.href,
+    comingSoon: englishOnlyFamilies.includes(n.family) ? true : n.comingSoon,
     label: nodeZh[n.id]?.label ?? n.label,
     blurb: nodeZh[n.id]?.blurb ?? n.blurb,
   }));
@@ -782,6 +786,8 @@ export function localize(lang: UILang) {
       k,
       {
         ...familyMeta[k],
+        href: englishOnlyFamilies.includes(k) ? undefined : familyMeta[k].href,
+        comingSoon: englishOnlyFamilies.includes(k) ? true : familyMeta[k].comingSoon,
         label: familyZh[k]?.label ?? familyMeta[k].label,
         blurb: familyZh[k]?.blurb ?? familyMeta[k].blurb,
       },

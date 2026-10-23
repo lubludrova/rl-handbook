@@ -1,0 +1,366 @@
+---
+title: "Latent Model-Based RL: PlaNet, Dreamer, and TD-MPC"
+description: Learn a state representation from observations, then compare latent planning, behavior learning in imagination, and planning with a TD-trained value function.
+---
+
+In the [model-based framework](/docs/04-model-based/model-based-rl-framework), two independent questions were **what the model predicts** and **how the agent uses it**. This chapter changes the first answer to a learned latent state. The second answer still varies: PlaNet searches for actions, Dreamer trains an actor and critic in imagination, and TD-MPC combines short action-sequence search with learned values.
+
+These methods assume access to observations and action-labeled transitions from which useful action consequences can be learned. Reward-based variants also need rewards and episode boundaries. A learned representation must retain the information required for the task. Compressing an image does not automatically recover the environment's Markov state. Model error, incomplete data coverage, and computation remain limitations even when prediction takes place in a small latent space.
+
+| Method family | Information the model must preserve | How predictions improve behavior | Main limitation |
+|---|---|---|---|
+| PlaNet | History needed to predict observations and rewards | Search action sequences at each real decision | Repeated search cost and finite-horizon model error |
+| Dreamer | History needed for latent simulation and task prediction | Train an actor-critic on imagined trajectories | Biased imagined rewards, states, and value targets |
+| TD-MPC / TD-MPC2 | Features sufficient for short dynamics, rewards, and values | Combine short planning with a terminal critic | Model-generated endpoints can expose critic errors |
+
+**Prerequisites:** [MPC and PETS](/docs/04-model-based/model-predictive-control), [actor-critic learning](/docs/02-on-policy-policy-based/actor-critic-a2c-a3c), and [off-policy policy improvement](/docs/03-off-policy-policy-based/off-policy-policy-improvement-framework). The latent-state and probabilistic notation is introduced below.
+
+## When the Observation Is Not the State
+
+Imagine controlling a cart-pole through a camera. Two images can show the pole at the same angle while it is falling in opposite directions. An action that catches it in one case can accelerate the fall in the other. In visual locomotion, the agent must infer motion and contacts. In an Atari game, a small projectile and its recent trajectory can matter more than most background pixels.
+
+These are natural settings for PlaNet and Dreamer. TD-MPC also applies to continuous-control tasks with supplied state vectors: a learned latent space can focus prediction on control-relevant quantities even when image compression is unnecessary. The observation modality and the way actions are chosen are separate design decisions.
+
+Let $s_t$ be a hidden physical state and $o_t$ the observation. A partially observable environment has dynamics and an observation mechanism:
+
+$$
+s_{t+1}\sim p(s_{t+1}\mid s_t,a_t),
+\qquad
+o_{t+1}\sim p(o_{t+1}\mid s_{t+1}).
+$$
+
+The agent sees the history $o_{0:t},a_{0:t-1}$, rather than necessarily seeing $s_t$. An exact sufficient statistic is the **belief state**, the conditional distribution of the current hidden state. Write its probability mass function, or probability density for continuous states, as
+
+$$
+\beta_t(s)=p(s\mid o_{0:t},a_{0:t-1}).
+$$
+
+Rewards must also be included in that history if they reveal additional state information. With known dynamics and observation probabilities, a Bayesian filter first predicts the next belief under the action and then corrects it using the new observation. Neural latent models learn an approximate version of this predict-and-correct computation. Their hidden vectors need not correspond to named physical quantities, and they are not guaranteed to preserve an exact belief.
+
+This distinction matters when diagnosing failure. If two histories requiring different actions produce the same learned state, even a perfect optimizer operating on that state cannot recover the missing distinction. Longer search cannot compensate for information already discarded by the encoder or memory.
+
+## From World Models to Latent Planning
+
+Ha and Schmidhuber's **World Models** (2018) separates three components: a variational autoencoder compresses images, a recurrent mixture-density model predicts future latents conditioned on actions, and a small controller chooses actions using the encoding and recurrent memory. Their CarRacing controller is optimized through real-environment evaluations using learned features. Their VizDoom controller is trained inside the learned simulator and then transferred to the original environment. The two experiments therefore demonstrate different uses of a model. [World Models](https://worldmodels.github.io/)
+
+The enduring idea is that learning how the world changes and learning how to act need not be the same computation. A controller can use a predictive representation without searching, or learn from trajectories produced by the model. The paper also exposes a danger: a controller can find ways to succeed in the learned simulator that fail in the real task.
+
+**PlaNet** (ICML 2019) develops latent dynamics for online planning from images. It asks for a representation that supports repeated forward prediction and can be corrected when new observations arrive. Its recurrent state-space model became the basis for the first Dreamer agents. This is a specific architectural connection. The wider history also includes parallel video-model and control approaches. For example, SimPLe trains a policy on predicted visual experience in a Dyna-style loop, without requiring a policy gradient through the simulator. [PlaNet](https://arxiv.org/abs/1811.04551); [SimPLe](https://arxiv.org/abs/1903.00374)
+
+### The Recurrent State-Space Model
+
+An RSSM combines deterministic memory $h_t$ and a stochastic latent $z_t$. Write their pair as $b_t=(h_t,z_t)$. The notation $b_t$ means a learned model state, not the exact belief $\beta_t$.
+
+The recurrent memory advances using the previous latent and action:
+
+$$
+h_t=f_\phi(h_{t-1},z_{t-1},a_{t-1}).
+$$
+
+Two distributions then serve different purposes:
+
+$$
+\begin{aligned}
+\text{Prior:}\qquad &p_\phi(z_t\mid h_t),\\
+\text{Posterior:}\qquad &q_\phi(z_t\mid h_t,o_t).
+\end{aligned}
+$$
+
+The prior predicts what could happen before seeing the current observation. The approximate posterior incorporates that observation. Deterministic memory carries information through time. Stochastic variables allow multiple plausible states or outcomes. This architecture can represent uncertainty, but does not by itself provide calibrated uncertainty about model error.
+
+Observation and reward heads predict $p_\phi(o_t\mid b_t)$ and $p_\phi(r_t\mid b_t)$. Throughout this chapter, $r_{t+1}$ is the reward received after action $a_t$. A continuation head can additionally predict whether that transition ends the task.
+
+| Operation | Information available | Latent update |
+|---|---|---|
+| Filtering real experience | Recorded or current observation $o_t$ | Infer $z_t$ from the posterior |
+| Imagining a future | Previous model state and proposed action | Sample $z_t$ from the prior |
+
+This is the key distinction in a world-model experiment. A reconstruction can be accurate because the posterior just saw the image. An imagined future must stay useful without seeing the intervening images. Supplying those images during a supposed prediction test changes the question being tested.
+
+### What Teaches the Latent State?
+
+The latent variables are not supervised physical states. We instead ask them to explain observed sequences and remain predictable through time. Introducing the approximate posterior gives an **evidence lower bound**, or ELBO, on sequence log-likelihood. With initial-state terms suppressed, a basic RSSM objective to maximize is
+
+$$
+\mathcal L_{\mathrm{ELBO}}
+=\sum_{t=1}^{T}\mathbb E_q\left[
+\log p_\phi(o_t\mid b_t)
++\log p_\phi(r_t\mid b_t)
+-D_{\mathrm{KL}}\left(
+q_\phi(z_t\mid h_t,o_t)\;\|\;p_\phi(z_t\mid h_t)
+\right)
+\right].
+$$
+
+The likelihood terms reward representations that explain observations and rewards. The posterior-to-prior KL discourages encoding information that the temporal predictor cannot anticipate. The expectation includes earlier latent samples that determine the recurrent memory. A continuation likelihood can be added when the task terminates.
+
+Neither part suffices alone. Matching posterior and prior perfectly is useless if both ignore the environment. Reconstructing every frame is insufficient if the prior cannot predict what actions do. In practice, KL balancing, free-nats thresholds, and stop-gradient choices modify the basic objective. They are optimization decisions, not interchangeable names for the ELBO.
+
+Reconstruction gives dense supervision before rewards are common, but can spend capacity on irrelevant textures. Task-specific prediction can discard those textures, but might also discard something a future reward function will need. A useful representation preserves the distinctions required by its intended decisions. “Latent” does not mean “universally sufficient.”
+
+### PlaNet: Use the Model to Choose the Next Action
+
+PlaNet puts the RSSM inside the MPC loop from the [planning chapter](/docs/04-model-based/model-predictive-control):
+
+1. Infer the current $b_t$ from real history.
+2. Sample candidate action sequences and roll them forward using the prior.
+3. Score candidates by their predicted reward sums.
+4. Refine the sampling distribution with CEM.
+5. Execute the first action, incorporate the next real observation, and replan.
+
+The decoder helps train the representation but need not render an image for every candidate transition. Original PlaNet uses neither a learned actor nor a terminal value network. The searched reward prefix supplies its decision objective. The paper also proposes latent overshooting to supervise multi-step priors, while reporting that its final RSSM agent does not require that additional objective. [PlaNet, Sections 2–4](https://arxiv.org/html/1811.04551v5)
+
+Compared with PETS, the new challenge is learning state inference from images as well as dynamics. The control pattern remains MPC, with CEM as its trajectory optimizer. The method can react to disturbances by replanning, but must pay that search cost at every decision. Rewards beyond its prediction horizon can be missed. These limitations motivate learning a reusable behavior and a value estimate.
+
+## Dreamer: Turn Imagination into an Actor-Critic
+
+**Dreamer** (ICLR 2020) keeps recurrent latent prediction but moves behavior improvement into training. A learned actor selects real actions without running PlaNet's sequence search. A critic estimates return beyond the imagined horizon, so behavior learning can account for delayed consequences. [Dreamer](https://arxiv.org/abs/1912.01603)
+
+Keep three parameter sets separate: $\phi$ for the world model, $\theta$ for the actor, and $\psi$ for the critic. Here $\psi$ plays the role of the critic parameters $w$ in earlier chapters. $w_t$ below denotes a trajectory weight. The training loop has three corresponding jobs:
+
+1. Fit the world model to sequences of real observations, actions, rewards, and continuation labels from replay.
+2. Infer posterior states from those sequences, then start prior-only imagined trajectories under the current actor.
+3. Fit the critic to imagined return targets and update the actor toward better predicted behavior.
+
+The actor then collects more real data. Replay supplies grounded starting histories, but the future imagined states and rewards come from the learned model. This shares Dyna's principle of improving behavior through model-generated experience. It does not make Dreamer an action-sequence optimizer or an identical implementation of MBPO.
+
+### An Imagined Return Needs a Tail
+
+From imagined state $b_t$, sample $a_t\sim\pi_\theta(\cdot\mid b_t)$ and advance the RSSM prior. Predict reward $\hat r_{t+1}$ and continuation $\hat c_{t+1}\in[0,1]$. Here continuation excludes the separate discount $\gamma$.
+
+For $H$ imagined transitions from a nonterminal starting state, a finite $\lambda$-return is
+
+$$
+\begin{aligned}
+G_H^\lambda&=V_\psi(b_H),\\
+G_t^\lambda&=\hat r_{t+1}+\gamma\hat c_{t+1}
+\left[(1-\lambda)V_\psi(b_{t+1})+\lambda G_{t+1}^\lambda\right],
+\quad t=H-1,\ldots,0.
+\end{aligned}
+$$
+
+At $\lambda=0$, the target uses one modeled reward and a next-state value. At $\lambda=1$, it uses the full remaining imagined prefix and bootstraps at the endpoint. Intermediate values combine those horizons. The final value initializes the recursion. Fitting it to itself adds no useful target.
+
+For example, let $H=2$, $\gamma=0.9$, $\lambda=0.8$, rewards be $1,2$, and values at $b_1,b_2$ be $4,5$. With no termination:
+
+$$
+\begin{aligned}
+G_2^\lambda&=5,\\
+G_1^\lambda&=2+0.9(0.2\cdot5+0.8\cdot5)=6.5,\\
+G_0^\lambda&=1+0.9(0.2\cdot4+0.8\cdot6.5)=6.4.
+\end{aligned}
+$$
+
+The one-step estimate is $4.6$. The two-step estimate is $6.85$. Their mixture is useful only to the extent that the model and critic are useful. If the second transition truly terminates, its continuation is zero, giving $G_1^\lambda=2$ and $G_0^\lambda=3.16$. Merely reaching the chosen imagination horizon is not termination.
+
+A basic scalar critic could minimize
+
+$$
+\begin{aligned}
+L_V(\psi)&=\mathbb E\left[
+\sum_{t=0}^{H-1}\operatorname{sg}(w_t)
+\left(V_\psi(b_t)-\operatorname{sg}(G_t^\lambda)\right)^2
+\right],\\
+w_t&=\prod_{j=1}^{t}\gamma\hat c_j,
+\quad w_0=1.
+\end{aligned}
+$$
+
+The operator $\operatorname{sg}$ means stop-gradient: keep the value while blocking differentiation through that target. The weights discount losses at less likely, more distant states. If an implementation already incorporates discount into its continuation output, multiplying by $\gamma$ again would double-discount.
+
+This squared loss explains the target, not every Dreamer implementation. V3 uses categorical return prediction and likelihood-based fitting. The Nature version also trains the critic on replay trajectories, using imagined start-state returns to help construct targets over real rewards. Thus “behavior learning through imagination” should not be read as “every critic target contains only synthetic rewards.” [DreamerV3, critic learning](https://www.nature.com/articles/s41586-025-08744-2)
+
+### Actor Gradients: Which Dreamer?
+
+There are two ways to improve the actor from an imagined return. A **pathwise gradient** differentiates through sampled actions, modeled transitions, rewards, and values. A **score-function gradient**, or REINFORCE estimator, treats sampled actions and their advantages as fixed training data and differentiates their log-probabilities. The [off-policy framework](/docs/03-off-policy-policy-based/off-policy-policy-improvement-framework) introduces this distinction through a critic. Here the advantage can include several modeled transitions.
+
+| Version | Important model change | Actor estimator in the cited main settings |
+|---|---|---|
+| DreamerV1, 2020 | Continuous stochastic RSSM | Pathwise gradients through imagined dynamics for continuous control |
+| DreamerV2, 2021 | Categorical stochastic latents and KL balancing | REINFORCE for Atari; dynamics backpropagation for continuous control |
+| DreamerV3, Nature 2025 | Objectives and normalization for robustness across domains | REINFORCE for both discrete and continuous actions |
+
+V2 defines a mixture of the two estimators, then uses different endpoints for its main Atari and continuous-control settings. Straight-through gradients for sampled latent variables concern a different boundary from the choice of actor estimator. Discrete latents do not imply that every actor update uses REINFORCE. [DreamerV2, behavior learning](https://arxiv.org/html/2010.02193v3)
+
+For a V3-style update, a readable maximization surrogate is
+
+$$
+\begin{aligned}
+J_\pi(\theta)
+&=\mathbb E\left[\sum_{t=0}^{H-1}\operatorname{sg}(w_t)\,\ell_t(\theta)\right],\\
+\ell_t(\theta)
+&=\log\pi_\theta(\operatorname{sg}(a_t)\mid\operatorname{sg}(b_t))\operatorname{sg}(A_t)\\
+&\quad+\eta\mathcal H\left(\pi_\theta(\cdot\mid\operatorname{sg}(b_t))\right),\\
+A_t&=\frac{G_t^\lambda-V_\psi(b_t)}{\max(1,S)}.
+\end{aligned}
+$$
+
+Here $S$ is a smoothed return-range estimate and $\eta$ controls the entropy bonus. A positive advantage raises the sampled action's probability. A negative advantage lowers it. Sampled actions, state inputs, advantages, and weights are stopped for this surrogate. Stopping only the advantage would leave an unintended gradient if a continuous action retained its reparameterized sampling path.
+
+During a pathwise actor update, world-model parameters are also held fixed, but derivatives through the model with respect to its actions and latent inputs remain available. Freezing parameters and detaching outputs are different operations. During a REINFORCE actor update, no dynamics derivative is needed, but model bias remains in the sampled states and return estimates. The score-function foundation is explained in [Spinning Up's policy optimization notes](https://spinningup.openai.com/en/latest/spinningup/rl_intro3.html).
+
+### Why V3 Changes More Than the Network Size
+
+Different tasks produce different reward magnitudes, observation scales, and levels of unpredictability. V3 combines several responses: KL balancing separates fitting the temporal prior from regularizing the posterior; free-nats thresholds avoid pressing every latent toward zero information; a small uniform mixture prevents nearly deterministic categorical distributions. Return normalization controls the actor's reward scale, and categorical reward/value regression controls prediction gradients. These mechanisms have different purposes. [DreamerV3](https://www.nature.com/articles/s41586-025-08744-2)
+
+For example, the transform
+
+$$
+\operatorname{symlog}(x)=\operatorname{sign}(x)\log(1+|x|)
+$$
+
+compresses large magnitudes while preserving sign. A two-hot regression target represents a number between neighboring support bins: a value $2.5$ between bins $2$ and $4$ receives weights $0.75$ and $0.25$. This differs from regressing one raw scalar with squared error. The exact transformed support and readout matter when translating the paper into code.
+
+These changes aim to make one algorithmic configuration work across varied tasks. That is different from training one checkpoint that solves every task without adaptation. Robust numerical objectives also do not solve missing data coverage or guarantee that long imagined rollouts are accurate.
+
+### What Happens When Dreamer Acts?
+
+At a real step, Dreamer advances recurrent memory, incorporates the observation through the posterior, and evaluates its actor. The model's state estimator remains in the deployed agent. The decoder and online trajectory search are unnecessary for ordinary action selection.
+
+This is still feedback control: a new observation changes the next action. It is not MPC, because no finite-horizon action optimization is repeated at each step. The distinction separates **closed-loop interaction** from one particular way of implementing it.
+
+Dreamer reduces decision-time search cost, but the actor can exploit inaccurate imagined rewards and the critic can faithfully fit biased targets. TD-MPC explores a different combination: retain online planning, keep its horizon short, and use temporal-difference learning to estimate the remaining return.
+
+## TD-MPC: Short Predictions, Long-Term Values
+
+**TD-MPC** (ICML 2022) develops the MPC-plus-value direction with a task-oriented latent model. It is not a later Dreamer version. The shared problem is efficient control from learned predictions. The response is to train representation, dynamics, rewards, and values together, then keep a planner at action time. **TD-MPC2** (ICLR 2024) extends this family with more robust objectives and support for scaling across tasks. [TD-MPC](https://arxiv.org/abs/2203.04955); [TD-MPC2](https://arxiv.org/abs/2310.16828)
+
+Use $x_t$ for the input supplied to this agent: a state vector or an appropriately constructed visual input. Its main components are
+
+$$
+\begin{aligned}
+z_t&=e_\phi(x_t),&
+\hat z_{t+1}&=f_\phi(z_t,a_t),\\
+\hat r_{t+1}&=r_\phi(z_t,a_t),&
+Q_\psi(z_t,a_t)&:\text{ action value}.
+\end{aligned}
+$$
+
+A learned policy supplies promising actions. This construction does not contain the RSSM's stochastic prior/posterior filter. If a single image is insufficient, the input must supply suitable history or the architecture must otherwise retain it. A latent transition model does not automatically solve partial observability.
+
+### The Planner's Objective
+
+Starting from $z_0=e_\phi(x_t)$, roll out an action prefix $u_0,\ldots,u_{H-1}$ with $z_{j+1}=f_\phi(z_j,u_j)$. For a continuing task, score it by
+
+$$
+\hat J(u_{0:H-1})=
+\sum_{j=0}^{H-1}\gamma^j r_\phi(z_j,u_j)
++\gamma^H Q_\psi(z_H,a_H),
+\qquad a_H\sim\pi_\theta(\cdot\mid z_H).
+$$
+
+A deterministic policy gives the corresponding terminal action without sampling. The terminal $Q$ already includes the reward of $a_H$ and all rewards after it. The explicit reward sum therefore stops before $a_H$. Adding that reward separately would double-count. Episodic variants additionally mask rewards and the bootstrap after termination.
+
+Take $H=2$ and $\gamma=0.9$. Candidate A predicts rewards $1,1$ and endpoint $Q=8$, while B predicts $2,2$ and endpoint $Q=3$:
+
+$$
+\hat J_A=1+0.9+0.81(8)=8.38,
+\qquad
+\hat J_B=2+1.8+0.81(3)=6.23.
+$$
+
+The critic makes A preferable despite the smaller immediate reward. If A's true endpoint value is only $1$, its correct score is $2.71$. Even perfect prediction of the short reward prefix would not rescue the decision. A terminal critic extends the effective objective horizon while introducing a new source of extrapolation error.
+
+The planner samples sequences from a search distribution and includes policy-generated candidates. High-scoring elites receive return-dependent weights. Weighted means and variances refine the proposal, and the preceding plan can warm-start the next decision. This is a sampling optimizer within MPC, with details that differ from the unweighted elite refit of basic CEM. The policy helps propose candidates and evaluate the tail. It does not replace the reported planner. [TD-MPC, trajectory optimization](https://arxiv.org/html/2203.04955v1)
+
+### Train the Model for Its Decisions
+
+Sample a real replay sequence, encode its first input, and unroll the latent dynamics under the **recorded actions**. At each depth, train reward prediction against the observed reward, value prediction against a TD target, and latent consistency against an encoding of the real next input.
+
+A schematic sequence loss is
+
+$$
+L=\sum_{j=0}^{K-1}\rho^j
+\left[c_zL_{\mathrm{cons}}^{(j)}
++c_rL_{\mathrm{reward}}^{(j)}
++c_QL_{\mathrm{value}}^{(j)}\right].
+$$
+
+The coefficient $\rho$ weights losses by unroll depth. It is neither the return discount $\gamma$ nor the $\lambda$ in Dreamer's return target. The constants $c_z,c_r,c_Q$ balance training signals.
+
+For original TD-MPC, the consistency target uses a slowly updated encoder:
+
+$$
+L_{\mathrm{cons}}^{(j)}=
+\left\|\hat z_{t+j+1}
+-\operatorname{sg}\left(e_{\bar\phi}(x_{t+j+1})\right)\right\|_2^2.
+$$
+
+No image reconstruction is required. Consistency asks the predicted latent to agree with a representation of what actually happened, while reward and value learning supply distinctions needed for the task. Consistency alone permits a constant representation. Reward prediction alone can miss information needed for later rewards. Their combination is an inductive bias, not a proof of sufficient state recovery. [TD-MPC, training objectives](https://arxiv.org/html/2203.04955v1)
+
+For a concrete TD-MPC2 implementation, the [pinned author code](https://github.com/nicklashansen/tdmpc2/blob/e9f59321933cbc8e11a002b842adc7d4ffae8ff1/tdmpc2/tdmpc2.py) instead stops the **current** encoder when constructing real next-input targets. Its TD target has the form
+
+$$
+\begin{aligned}
+y_t&=r_{t+1}+\gamma(1-d_{t+1})
+\min_{i\in\mathcal I}Q_{\bar\psi_i}(z_{\mathrm{next}},a'),
+\\
+z_{\mathrm{next}}&=\operatorname{sg}(e_\phi(x_{t+1})),
+\quad a'\sim\pi_\theta(\cdot\mid z_{\mathrm{next}}).
+\end{aligned}
+$$
+
+Here $d_{t+1}$ marks true termination and $\mathcal I$ is the sampled target-critic subset. Predictions at the unrolled current latent are fitted to this stopped target. The paper's compact notation uses a predicted next latent. The pinned code explicitly encodes real next inputs. This is a version-specific distinction worth checking when reproducing an implementation.
+
+The target contains no SAC entropy term. TD-MPC2 does train its stochastic policy proposal with a scaled value objective and entropy regularization, but an entropy-regularized actor does not by itself turn the critic into a SAC critic. Policy learning, value learning, and the action-time optimizer remain different computations.
+
+### What TD-MPC2 Changes
+
+Original TD-MPC's deterministic policy with scheduled action noise, raw reward/value regression, and unconstrained latent representation can require task-specific numerical choices. TD-MPC2 retains short latent planning while revising those components:
+
+| Change | Purpose |
+|---|---|
+| SimNorm | Apply softmax within latent groups to control representation scale. The output is a continuous vector on simplices, not a sampled categorical latent |
+| Categorical reward/value regression | Reduce sensitivity of prediction gradients to raw reward magnitude |
+| Larger Q ensemble | Stabilize value targets. This is an ensemble of critics, not PETS's ensemble of transition models |
+| Stochastic entropy-regularized policy prior | Learn action diversity without relying only on a hand-designed noise schedule |
+| Task embeddings and action masks | Train shared components across tasks with different control interfaces |
+
+The paper separates its evaluation across 104 tasks from its single multi-task model trained on 80 tasks. Neither result means that one checkpoint solves every evaluated task without adaptation. The representation is trained for the supplied tasks. A new reward may depend on a feature it never needed to retain. [TD-MPC2, method and experiments](https://arxiv.org/html/2310.16828v2)
+
+## Compare the Control Loops, Not Just the Latents
+
+The three families can now be compared by following one model prediction to the computation that consumes it:
+
+| Question | PlaNet | Dreamer | TD-MPC family |
+|---|---|---|---|
+| What predicts the future? | Recurrent stochastic latent model | Recurrent stochastic latent model in V1–V3 | Task-oriented latent transition model |
+| Is observation reconstruction part of the model objective? | Yes | Yes, alongside task heads | No |
+| What carries value beyond a short rollout? | No learned terminal value in the original agent | Critic bootstrap in imagined returns | Terminal Q in the planning score |
+| What is learned about behavior? | No parametric actor | Actor and critic using imagination | Policy proposal and TD critic jointly with task-oriented model learning |
+| What chooses the real action? | CEM-based MPC | Actor after state inference | Policy-guided sampling planner in MPC |
+| Where can model error change the decision? | Candidate rankings | Imagined advantages and learned actor | Candidate rewards, latent endpoints, and critic evaluation |
+
+The [MuZero chapter](/docs/04-model-based/alphazero-and-muzero) gives another latent model trained to support decisions without reconstruction. Its search is a tree, and search visit counts supply policy targets. TD-MPC's policy is trained through its critic and supports trajectory optimization. A shared interest in task-relevant representations does not make those training loops identical, or guarantee strict value equivalence for every policy.
+
+## Beyond RSSMs: World Models and JEPA
+
+“World model” is a broader label than any row in the table. It can refer to a recurrent latent predictor, a visual simulator, a representation predictor, or another learned model of environment evolution. To understand a new claim, ask which actions it accepts, what objective specifies a desirable future, and which controller uses its predictions.
+
+### Change the Predictor, Keep Behavior Learning Explicit
+
+IRIS uses visual tokens and autoregressive transformer dynamics. Its actor-critic learns through the resulting imagined visual environment. DIAMOND uses diffusion-based visual dynamics and emphasizes that small image details can matter for control. These change the simulator's representation and prediction mechanism. They do not remove the separate problem of learning behavior, and their prediction throughput is part of the compute budget. [IRIS](https://arxiv.org/abs/2209.00588); [DIAMOND](https://arxiv.org/abs/2405.12399)
+
+The inspected **Dreamer 4** preprint (September 2025, version 1) uses a causal tokenizer, transformer dynamics, and shortcut forcing for efficient prediction. It includes behavior cloning and reward learning from offline data, followed by policy/value improvement in imagination with the transformer frozen in its default regime. Its PMPO actor objective uses a behavioral prior. It is therefore not simply V3's RSSM and actor loss scaled up. “Offline training” describes the source of training experience. Real-environment evaluation is still needed to establish useful behavior. [Dreamer 4](https://arxiv.org/html/2509.24527v1)
+
+### JEPA: Predict Representations Before Asking How to Act
+
+A **joint-embedding predictive architecture**, or JEPA, predicts a target representation from available context instead of reconstructing every pixel. This can allocate capacity to predictable structure, but prediction by itself supplies neither a reward objective nor an RL update. Action-free video pretraining also does not automatically identify what would happen under alternative robot actions.
+
+V-JEPA 2 makes this separation concrete. Its visual pretraining is followed by an action-conditioned stage, **V-JEPA 2-AC**, using robot data and a frozen pretrained encoder. Given a current representation and goal image, the controller searches for actions whose predicted endpoint approaches the goal representation. Its stated energy uses L1 distance, minimized with CEM. It executes the first action and replans. This is latent MPC with a goal objective, not Dreamer-style actor-critic training. [V-JEPA 2, Sections 3–4](https://arxiv.org/html/2506.09985v1)
+
+The reported roughly 62 hours of robot interaction concern the action-conditioned stage, following much larger video pretraining. Those data include the robot signals needed for action supervision even when task and reward labels are absent. Goal images and supplied subgoals also contribute information. They must be counted when interpreting the result.
+
+The resemblance to TD-MPC is representation prediction without an image decoder. The difference is what defines useful representations and behavior: TD-MPC learns from rewards and TD values, whereas the cited V-JEPA control system optimizes a specified visual-goal distance. JEPA is neither automatically an RL algorithm nor a successor that replaces every reconstruction-based model.
+
+## Check What the Agent Actually Learned
+
+Evaluate a latent model in the mode its controller will use. Posterior reconstruction, prior rollout accuracy, reward/continuation accuracy, and real control performance answer different questions. Start held-out prior rollouts from real histories and disclose every observation supplied. Otherwise a filtering result can masquerade as long-horizon prediction.
+
+Useful comparisons isolate the claimed benefit. For PlaNet, vary the planning horizon and search budget. For Dreamer, compare imagined and realized returns and inspect the actor's exact gradient boundary. For TD-MPC, evaluate terminal-Q accuracy at planned endpoints and compare planning with policy-only acting. An increase in predicted value accompanied by a decrease in real return points toward model or value exploitation.
+
+For implementation reading, trace a real observation through the [pinned DreamerV3 agent](https://github.com/danijar/dreamerv3/blob/e3f02248693a79dc8b0ebd62c93683888ddaccfe/dreamerv3/agent.py), then separately follow imagination, return construction, and actor/critic losses. In the [pinned TD-MPC2 agent](https://github.com/nicklashansen/tdmpc2/blob/e9f59321933cbc8e11a002b842adc7d4ffae8ff1/tdmpc2/tdmpc2.py), trace recorded-action model unrolling and real-next-input targets separately from candidate generation and planning scores. Keep the commit visible: code and publication versions can differ.
+
+The [References](/docs/references) collect the primary readings and broader course resources. Before moving on, explain why Dreamer still needs state inference when it acts, why TD-MPC can choose the wrong action with accurate short-term rewards, and what must be added to an action-free JEPA before it becomes a controller. Those distinctions locate new world-model systems on the same framework used throughout this section.
+
+The [next chapter, Offline Model-Based RL](/docs/04-model-based/offline-model-based-rl), asks what changes when the training dataset is fixed. Model rollouts can still support learning and planning, but new real interactions are no longer available to correct unsupported predictions.

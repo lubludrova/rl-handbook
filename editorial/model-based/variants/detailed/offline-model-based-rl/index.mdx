@@ -1,0 +1,198 @@
+---
+title: Offline Model-Based RL
+description: Learn from fixed data with pessimistic models or values, and understand why exact dynamics do not solve every offline learning failure.
+---
+
+> **Abstract.** Offline RL learns a policy from a fixed dataset without collecting new training interactions. A dynamics model can generate additional transitions, but it cannot create missing empirical evidence. MOPO, MOReL, and COMBO address this limitation through different forms of pessimism. We also examine a more subtle failure: short model rollouts can bootstrap from states whose values are never trained, even when the transition model is exact.
+
+**Prerequisites:** [model error](/docs/04-model-based/learning-dynamics-models), [MBPO and value expansion](/docs/04-model-based/model-based-policy-optimization), and Bellman bootstrapping. This chapter introduces the offline setting directly.
+
+## A Dataset Is Not an Interactive Environment
+
+Suppose a robot operator gives us logged transitions from a cautious controller. We may fit networks and sample the dataset indefinitely, but cannot send the robot a new action during training.
+
+This is offline RL. It differs from off-policy online RL: SAC can reuse old data while still collecting new transitions; a strictly offline learner cannot obtain corrective feedback for its latest policy.
+
+Let
+
+$$
+\mathcal D=
+\{(s_t,a_t,r_{t+1},s_{t+1},d_{t+1})\}
+$$
+
+be fixed. The data may come from one behavior policy, several controllers, demonstrations, or a mixture of qualities. Learning a policy better than the behavior requires using the information in those transitions without assuming unsupported actions will work.
+
+**Support** informally describes where the dataset provides evidence: which states and actions occur, and with what coverage. In continuous spaces, exact repetition is rare, so useful generalization also depends on representation, smoothness, and distance. “Outside support” is not always a simple Boolean membership test.
+
+If the cautious controller never applies high torque near an obstacle, the dataset may not identify the consequences of that action. Two environments can agree on every recorded transition and disagree there. No amount of resampling the fixed data resolves that ambiguity without extra assumptions.
+
+## Why a Model Both Helps and Hurts
+
+A dynamics model shares information across related transitions. If nearby forces have predictable effects, it may produce useful counterfactual samples and allow efficient policy learning.
+
+The same generalization can be confidently wrong. A policy optimizer searches the fitted model for high reward and may move into poorly supported regions. In online MBPO, new interactions can reveal some of these mistakes. Offline training lacks that repair mechanism.
+
+Long synthetic trajectories are therefore not equivalent to a larger real dataset. They contain computational consequences of fitted assumptions. The training loop may have millions of model transitions and still rest on a narrow set of observations.
+
+Offline model-based methods often add **pessimism**: make unsupported behavior less attractive. Where that pessimism is applied matters.
+
+| Method | Main intervention | Object made conservative |
+|---|---|---|
+| MOPO | Subtract an uncertainty-related penalty | Modeled reward |
+| MOReL | Route unknown transitions to an undesirable absorbing state | Planning MDP |
+| COMBO | Penalize selected out-of-distribution value estimates | Critic |
+
+These are different algorithms, not three names for one uncertainty bonus.
+
+## MOPO: Penalize Modeled Rewards
+
+MOPO fits a dynamics model to the fixed dataset and trains a policy on short model rollouts, with a pessimistic reward:
+
+$$
+\tilde r(s,a)=\hat r(s,a)-\lambda u(s,a).
+$$
+
+Here $u(s,a)$ is an uncertainty or error proxy and $\lambda$ controls the penalty. Real and modeled samples can both contribute to an off-policy learner. [Yu et al., MOPO](https://arxiv.org/abs/2005.13239)
+
+If two actions have predicted reward $3$ but uncertainty proxies $0.1$ and $2$, choosing $\lambda=1$ yields penalized rewards $2.9$ and $1$. This discourages the second action even though its nominal prediction looks equally good.
+
+The theoretical argument requires the uncertainty quantity to control the relevant discrepancy between true and modeled future values, together with assumptions about the value-function class and optimization. Practical ensemble statistics approximate that role; they are not automatically valid upper bounds on every transition error.
+
+This distinction is essential. If all models share a blind spot, $u$ can be small where the true error is large. If $u$ mostly reflects irreducible stochasticity, the penalty can discourage genuinely valuable stochastic actions.
+
+The penalty also acts over trajectories: a modest per-step penalty can accumulate heavily along a long path. Report its definition and scale, not just the word “uncertainty.”
+
+## MOReL: Build a Pessimistic MDP
+
+MOReL identifies a region where dynamics predictions are considered sufficiently known. When a proposed transition involves an unknown state-action pair, its pessimistic MDP sends the agent to a special absorbing state with an unfavorable return. [Kidambi et al., MOReL](https://arxiv.org/abs/2005.05951)
+
+The mechanism is a hard intervention in planning:
+
+$$
+\tilde p(\cdot\mid s,a)=
+\begin{cases}
+\hat p(\cdot\mid s,a), & (s,a)\text{ classified as known},\\
+\delta_{\mathrm{unknown}}, & \text{otherwise}.
+\end{cases}
+$$
+
+The absorbing state is part of the constructed pessimistic problem, not a claim that the physical environment literally terminates whenever data are sparse.
+
+The intended effect is to keep the optimizer within regions where the model is trustworthy enough. The difficulty moves into the known/unknown test. Its theoretical properties depend on error-control assumptions; a neural ensemble disagreement threshold is a practical approximation to that test.
+
+Compare with MOPO: one continuously reduces reward according to a proxy; the other changes the transition outcome after crossing a threshold. This difference affects how a policy trades possible reward against unsupported behavior.
+
+## COMBO: Make the Critic Conservative
+
+COMBO avoids requiring an explicit calibrated dynamics-uncertainty estimate. It learns a model, generates synthetic transitions, and regularizes Q values to reduce optimism on selected model-generated state-action pairs. [Yu et al., COMBO, Section 3](https://arxiv.org/abs/2102.08363)
+
+A schematic conservative critic objective is
+
+$$
+L_Q=
+\frac12\mathbb E_{\mathcal D_f}
+\left[(Q(s,a)-y)^2\right]
++\beta\left[
+\mathbb E_{(s,a)\sim\rho}Q(s,a)
+-\mathbb E_{(s,a)\sim\mathcal D}Q(s,a)
+\right].
+$$
+
+$\mathcal D_f$ mixes real and model transitions for Bellman regression. The distribution $\rho$ samples states from modeled policy rollouts and actions from the policy in the theoretical construction; practical sampling has additional details. The target $y$ is the corresponding bootstrapped target.
+
+The regularizer pushes values down on $\rho$ relative to trusted dataset pairs. The policy then improves against this conservative critic. The model expands the states on which learning can operate, while the value objective controls one source of overoptimism.
+
+COMBO's analysis gives conditional lower-bound and policy-improvement results. “No explicit uncertainty estimator” does not mean “no assumptions about data, model bias, or optimization.” It also does not mean the reward model itself has become pessimistic.
+
+In particular, its policy-value lower-bound statement concerns expectation under the specified initial-state distribution. Do not reinterpret it as a pointwise certificate for every neural Q estimate.
+
+The source of the penalty matters when debugging: a low reward prediction, a pessimistic absorbing transition, and a depressed Q estimate can produce similar actions while representing different failures or safeguards.
+
+## Exact Dynamics, Wrong Values: Edge-of-Reach
+
+It is tempting to think that all offline model-based difficulty disappears with a perfect simulator. A simulator certainly removes transition-model error. It does not guarantee that a particular data-generation and bootstrapping procedure trains every value it uses.
+
+The **Edge-of-Reach** analysis studies short rollouts started from a fixed dataset. Some states appear only at the final rollout position. They occur as next states in Bellman targets, but never as current states receiving their own training update. [Sims et al., 2024](https://arxiv.org/abs/2402.12527)
+
+### A Three-State Counterexample
+
+Consider a continuing, deterministic process:
+
+$$
+A \xrightarrow{0} B \xrightarrow{0} C,
+\qquad
+C \xrightarrow{0} C.
+$$
+
+All rewards are zero, $\gamma=0.9$, and **none of these transitions terminates**. There is one action. Every true value is zero.
+
+Suppose the fixed real dataset contains only transitions from $A$ to $B$, and synthetic rollouts always start from its current-state field, $A$. With rollout length $k=2$, even an exact simulator produces only training transitions $(A,0,B)$ and $(B,0,C)$.
+
+State $C$ is a bootstrap endpoint, but never a source state in the generated training data. Suppose its unconstrained value prediction is $V(C)=100$. Bellman fitting can produce
+
+$$
+V(B)=0+0.9(100)=90,
+\qquad
+V(A)=0+0.9(90)=81.
+$$
+
+Both fitted targets are internally consistent with the available updates, while all three values are wrong. The simulator predicted every queried transition correctly.
+
+One action is enough to expose the evaluation failure. With multiple actions, maximization can preferentially seek endpoints with the largest overestimates, turning the value error into a policy problem.
+
+### What the Example Establishes
+
+The missing information is not necessarily a transition law. The learner has failed to train the value at a state from which it bootstraps. If it actually queried the exact model at $C$ and trained that self-loop, repeated discounted backups could correct $V(C)$.
+
+Increasing the rollout horizon can fix this particular finite example. In a larger environment it may merely move the untrained boundary farther out.
+
+Setting the terminal flag at every artificial model cutoff would also remove that bootstrap, but it would change the intended continuing problem. A rollout stopped for computational convenience is not an environmental terminal event.
+
+This is a failure of a class of truncated-rollout learning procedures, not a theorem that exact simulators cannot solve offline tasks. An exact model with adequate planning or appropriate value coverage is much more informative than the procedure above makes use of.
+
+## RAVL and Support-Based Diagnostics
+
+The Edge-of-Reach paper proposes Reach-Aware Value Learning, or RAVL, to address problematic value estimates using value-ensemble uncertainty and pessimistic learning. Its motivation targets where the critic is unsupported, including situations where a dynamics-error penalty would vanish.
+
+Its conservative Bellman target uses a minimum over an ensemble of critics; the main experiments also encourage critic diversity with an EDAC-style regularizer. Agreement among insufficiently diverse critics can still hide common error.
+
+The lesson is broader than that particular repair: inspect the current-state and next-state distributions separately. Are there states that occur frequently in targets but rarely receive their own supervised Bellman updates? Do value disagreements grow near the rollout boundary?
+
+SUMO explores a different support-based signal, using nearest-neighbor distances for synthetic transition samples relative to the dataset. This can reveal unsupported predictions that an ensemble's shared confidence misses. Distances still depend on representation, normalization, and dimensionality; they are not universal physical error certificates. [Qiao et al., SUMO, AAAI 2025](https://ojs.aaai.org/index.php/AAAI/article/view/34206)
+
+Support estimates, dynamics uncertainty, and critic uncertainty answer related but distinct questions. Treating one scalar as a complete measure of “trust” loses that distinction.
+
+## Offline Search Is Another Model Use
+
+Not every offline model-based method builds a synthetic replay buffer for SAC. [MuZero Unplugged](/docs/04-model-based/alphazero-and-muzero) refreshes policy/value targets by searching stored states with a learned model.
+
+Reanalyse spends new computation on old experience. It can improve targets when the current model and search are more useful than those used during collection. But repeatedly searching an unsupported branch does not provide new evidence about the real environment. [MuZero Unplugged](https://arxiv.org/abs/2104.06294)
+
+Likewise, offline imagination with a pretrained world model has a particular data contract: pretraining data, action labels, task rewards, and any later adaptation all contribute to what the agent knows. A large video corpus is not interchangeable with a small fully labeled transition dataset.
+
+## From Offline to Online
+
+If new interaction becomes available, the agent can actively check uncertain actions and correct its model. That changes the learning setting to offline-to-online RL.
+
+Pessimism that protects an offline learner can impede useful exploration online. Simply retaining the same penalty forever may keep the policy trapped near the original dataset. Conversely, abruptly removing it can expose a critic or model that was never trained outside that region.
+
+A careful transition tracks how data coverage, critic targets, and uncertainty estimates change. Real observations should update the model and training distribution; a lower penalty alone is not evidence of improved knowledge.
+
+This also affects evaluation. If hyperparameters are selected using repeated real-environment trials, that interaction budget should be disclosed even if the final optimizer trains on a fixed dataset. A strict offline protocol cannot silently use unlimited online tuning.
+
+## Questions for an Offline Experiment
+
+Before interpreting a result, identify:
+
+- who collected the dataset and which behavior it covers;
+- whether termination and time limits were recorded correctly;
+- which model predictions, critic estimates, or support signals are penalized;
+- where model rollouts start and end;
+- whether every important bootstrap region receives value training;
+- which interactions were used for tuning and final evaluation.
+
+Keep a model-free offline baseline and, when feasible, an oracle-dynamics ablation. They answer different questions: whether modeling helps at the chosen budget, and how much remaining failure is explained by transition error.
+
+Before continuing, explain why the three-state example still fails when a dynamics uncertainty penalty is exactly zero. Then describe a change to the learning procedure that fixes that example without pretending $C$ is terminal.
+
+The [next chapter](/docs/04-model-based/world-model-frontiers) broadens the model's role to exploration, temporal abstraction, transfer, and recent large world models. The [evaluation chapter](/docs/04-model-based/evaluating-model-based-agents) turns these distinctions into a practical comparison protocol.

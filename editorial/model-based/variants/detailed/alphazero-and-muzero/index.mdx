@@ -1,0 +1,251 @@
+---
+title: "Tree Search: From MCTS to MuZero"
+description: "How Monte Carlo tree search, self-play, and learned dynamics connect in AlphaGo, AlphaZero, and MuZero."
+---
+
+> **Abstract.** Tree search occupies the decision-time planning branch of the [model-based framework](/docs/04-model-based/model-based-rl-framework): the agent uses a model to compare actions before acting. Neural search also connects this branch to behavior learning, because search results can train a policy and a value function. MCTS supplies the search procedure. AlphaGo and AlphaZero learn its guidance while keeping known game rules. MuZero also learns the dynamics used inside the tree.
+
+The basic setting is a sequential task with a manageable set of candidate actions, a model that can advance hypothetical states, and enough computation between real actions. In the board-game examples, the state includes the information required by the rules, including the player to move and relevant history. Two-player zero-sum values need a player convention. Chance outcomes and hidden information require additional treatment. The basic game tree is not a general solution to either problem. A learned model adds another limitation: searching it more thoroughly can amplify an incorrect prediction.
+
+These assumptions explain the environments used along this line:
+
+| Environment | What search must resolve | What the model supplies |
+|---|---|---|
+| A small game such as Connect Four | Whether a promising move permits an immediate opposing win | Known legal moves, successor positions, and terminal outcomes |
+| Go | Many plausible moves and difficult position evaluation | Exact rules. Learned priors and values make the search selective |
+| Chess and shogi | Tactical sequences, different action encodings, and possible draws | Exact rules in AlphaZero, learned latent transitions in MuZero |
+| Atari | Consequences of discrete controls from image history, with intermediate rewards | MuZero predicts rewards and latent successors without calling the emulator during search |
+
+The control loop observes the environment again after acting. That makes it a feedback controller, but does not make every tree-search method an instance of the finite-horizon trajectory optimization introduced in [MPC](/docs/04-model-based/model-predictive-control). Here the central object is a branching tree whose search statistics can also supervise learning.
+
+**Prerequisites:** the [model-based framework](/docs/04-model-based/model-based-rl-framework), [policy iteration](/docs/01-value-based/dynamic-programming), and basic policy/value approximation. We introduce the tree-search machinery below.
+
+## The Search Problem: Where Should Computation Go?
+
+Imagine that a policy proposes a chess move. One network evaluation can recognize a familiar position, but it might overlook a reply that loses a rook. A model lets us inspect that reply before committing to the move.
+
+The difficulty is that looking ahead creates a tree. With roughly $b$ choices per position, expanding every continuation to depth $H$ requires work growing like $b^H$. A fixed computation budget cannot examine all branches equally deeply. It needs a rule for spending more effort on actions that look promising while still checking alternatives.
+
+**Monte Carlo tree search (MCTS)** builds this tree incrementally through simulations. A simulation is a computation through the model, not a new interaction with the real environment. At an edge $(s,a)$, keep a visit count $N(s,a)$ and a mean backed-up return $Q(s,a)$. These are temporary statistics for the current search, distinct from a learned $Q$-network whose parameters persist across decisions.
+
+Each simulation repeats four operations:
+
+1. **Select:** follow already expanded edges using a rule that balances estimated value and further investigation.
+2. **Expand:** generate a previously unexpanded successor using the model.
+3. **Evaluate:** estimate the leaf's remaining return, or read an exact outcome if it is terminal.
+4. **Back up:** propagate the return through the visited path and update its counts and averages.
+
+Early MCTS commonly evaluated leaves by playing a rollout to termination under a simple policy. That is one evaluation mechanism, not the definition of MCTS. A heuristic or learned value can provide the leaf estimate instead.
+
+The UCT algorithm of Kocsis and Szepesvári (2006) applies the bandit idea of an exploration bonus at tree nodes. A representative selection rule is
+
+$$
+a^* = \arg\max_a
+\left[
+Q(s,a) + c\sqrt{\frac{\log N(s)}{N(s,a)}}
+\right],
+\qquad N(s)=\sum_b N(s,b).
+$$
+
+This expression applies once the relevant counts are positive. Unvisited actions need an explicit initialization rule. The first term favors good observed returns. The second gives less-visited actions another chance. Search exploration allocates simulated computation. It is separate from exploration through real actions. [Kocsis and Szepesvári, *Bandit Based Monte-Carlo Planning*](https://doi.org/10.1007/11871842_29)
+
+This answers where to search, but it leaves two expensive questions: which moves deserve an initial preference, and how should an unfinished position be valued?
+
+## AlphaGo: Learn Which Moves and Positions Matter
+
+AlphaGo (2016) used neural networks to answer both questions. A policy network predicted promising moves, initially from human expert games and then with reinforcement learning from self-play. A value network learned to predict game outcomes from self-play positions. Search combined learned move preferences with leaf evaluations that mixed the value network and a fast rollout policy. The game simulator still supplied exact transitions and outcomes. [Silver et al., AlphaGo](https://doi.org/10.1038/nature16961)
+
+The two learned predictions reduce different burdens. A policy prior directs computation toward plausible branches. A value estimate lets search stop before the end of a game. Neither changes the rules used to generate the next board.
+
+This was a successful combination, but its training pipeline still depended on human examples and several separately trained components. The next question was whether search itself could supply the policy supervision.
+
+## AlphaGo Zero: Search Becomes the Teacher
+
+AlphaGo Zero (2017) removed human-game supervision and used one network with policy and value outputs:
+
+$$
+(p_\theta(s),V_\theta(s))=f_\theta(s).
+$$
+
+At an expanded leaf, the policy output supplies priors for its outgoing moves and the value output supplies the evaluation. Separate rollout-to-terminal evaluation is no longer needed. Self-play begins with a randomly initialized network, while legal moves, transitions, and scoring still come from the known rules. [Silver et al., AlphaGo Zero](https://doi.org/10.1038/nature24270)
+
+### From a Prior to a Search Distribution
+
+A simplified PUCT rule includes the learned prior $P(s,a)=p_\theta(a\mid s)$:
+
+$$
+a^*=\arg\max_a
+\left[
+Q(s,a)+c\,P(s,a)
+\frac{\sqrt{\sum_b N(s,b)}}{1+N(s,a)}
+\right].
+$$
+
+A highly recommended move receives attention early. Its backed-up results then affect later selections. This is a useful schematic, not complete reproduction code: initialization, root exploration noise, and the exploration coefficient also matter.
+
+After a budget of simulations, root visit counts give a search distribution
+
+$$
+\pi_{\mathrm{search}}(a\mid s)=
+\frac{N(s,a)^{1/\tau}}
+{\sum_b N(s,b)^{1/\tau}},
+\qquad \tau\gt0.
+$$
+
+At temperature $\tau=1$, counts of $30$ and $10$ produce probabilities $0.75$ and $0.25$. As temperature approaches zero, the distribution concentrates on the most-visited actions. Exploration during self-play and action choice during evaluation can use different settings.
+
+Three objects now coexist. The prior $p_\theta$ is the network's prediction before search. The values $Q$ summarize simulated returns during search. The distribution $\pi_{\mathrm{search}}$ summarizes how the search allocated visits and becomes a policy target. None is interchangeable with the other two.
+
+### Train on the Search and the Outcome
+
+For each self-play position, store the state $s$, the search distribution $\pi_{\mathrm{search}}$, and the final outcome $Z$ from that position's player's perspective. A schematic training loss is
+
+$$
+L(\theta)=
+\big(V_\theta(s)-Z\big)^2
+-\sum_a\pi_{\mathrm{search}}(a\mid s)\log p_\theta(a\mid s)
++\lambda_{\mathrm{reg}}\|\theta\|_2^2.
+$$
+
+The policy learns to reproduce the search's preferences. The value learns the eventual result of playing. The updated network then guides future searches. This is the search-based policy-iteration loop developed in AlphaGo Zero and retained in AlphaZero. [AlphaGo Zero](https://doi.org/10.1038/nature24270); [AlphaZero](https://arxiv.org/abs/1712.01815)
+
+Search can find a useful continuation at one position. Fitting the network can generalize that lesson to other positions. This explains how decision-time planning and behavior learning help each other. It also distinguishes this loop from [Dyna-style learning](/docs/04-model-based/dyna-and-learned-models): the policy here receives a distribution produced by search, rather than simply training on a buffer of synthetic transitions.
+
+Finite search with approximate leaf values does not automatically improve every decision. Fitting its targets approximately does not provide the exact improvement guarantee of tabular policy iteration either. The loop is a learning procedure whose benefit must be measured.
+
+## AlphaZero: Generalize the Loop beyond Go
+
+AlphaZero appeared as a preprint in 2017 and in *Science* in 2018. It adapted this self-play procedure to chess, shogi, and Go. Expected-outcome targets allow draws, and the algorithm drops Go-specific symmetry augmentation. It also continually updates the network used for self-play, unlike AlphaGo Zero's procedure that evaluated a candidate against the current best network before replacing it. These are meaningful algorithmic differences, not just new game names. [Silver et al., AlphaZero](https://arxiv.org/abs/1712.01815)
+
+The common algorithm was trained separately for each game. It still received game-specific state/action encodings and exact rules for legal moves, successor positions, and outcomes. Its generality concerns the learning and search procedure. It does not mean one checkpoint mastered every game or that the dynamics were learned. [Silver et al., *Science*](https://doi.org/10.1126/science.aar6404)
+
+To keep that separation visible:
+
+| Component | Role in AlphaZero |
+|---|---|
+| Environment model | Known rules generate hypothetical continuations |
+| Search algorithm | MCTS allocates simulations and constructs action preferences |
+| Learning algorithm | Fit policy/value predictions to search targets and self-play outcomes |
+| Executed controller | Observe the position, search, play a move, and repeat |
+
+Learning better guidance can make search much stronger. It cannot remove the need for a transition model, because every expansion still asks what follows an action.
+
+## A Backup Must Know Whose Value It Carries
+
+Before replacing the exact model, check the tree's bookkeeping. In a single-agent task, the return passed through an edge is
+
+$$
+G_{\mathrm{parent}}=r+\gamma G_{\mathrm{child}}.
+$$
+
+At an evaluated leaf, initialize $G_{\mathrm{child}}$ from its value estimate. At a true terminal state there is no continuation value. If the terminal reward is carried by the incoming edge, do not also count it as a leaf outcome.
+
+For a two-player zero-sum game, suppose each node's value is a signed expected outcome in $[-1,1]$ for the player to move. When the player changes along an edge, the convention becomes
+
+$$
+G_{\mathrm{parent}}
+=r_{\mathrm{parent}}-\gamma G_{\mathrm{child}}.
+$$
+
+The immediate reward is expressed for the parent player. A same-player continuation keeps the plus sign. An implementation that stores everything in one fixed player's perspective uses different selection and backup bookkeeping. The conventions must not be mixed.
+
+For example, let $\gamma=1$ and intermediate rewards be zero. At a leaf where player A moves, the value is $+0.6$ for A. Its parent, where B moves, receives $-0.6$. The root, where A moves, receives $+0.6$ again. Both players maximize values in their own perspective, so B does not cooperate in choosing A's best outcome.
+
+Once converted to the edge's perspective, the sample updates its running average:
+
+$$
+N_{\mathrm{new}}=N+1,
+\qquad
+Q_{\mathrm{new}}=\frac{NQ+G}{N+1}.
+$$
+
+If $N=2$, $Q=0.3$, and the new return is $G=0.9$, the new mean is $0.5$. This average is an estimate from the trajectories selected by the search, not a proof of an action's minimax value.
+
+Signed outcomes also differ from win probabilities. With draws, $P(\mathrm{opponent\ wins})=1-P(\mathrm{win})-P(\mathrm{draw})$. Negating a probability in $[0,1]$ is never the signed-value perspective conversion.
+
+## MuZero: Learn the Dynamics Used by Search
+
+MuZero, introduced in 2019 and published in 2020, addresses the dependency AlphaZero retained: an exact transition simulator for hypothetical actions. It keeps the search-and-learning loop but supplies search with learned latent dynamics. This also connects the search lineage to earlier work on learning value-predictive models. It is not the origin of all latent model-based RL. [Schrittwieser et al., MuZero](https://arxiv.org/abs/1911.08265)
+
+Use three functions:
+
+$$
+\begin{aligned}
+z_t^0&=h_\theta(\mathcal H_t),\\
+(\hat r_t^{k+1},z_t^{k+1})
+&=g_\theta(z_t^k,a_{t+k}),\\
+(\hat p_t^k,\hat V_t^k)&=f_\theta(z_t^k).
+\end{aligned}
+$$
+
+Here $h$ is a representation function, $g$ is the recurrent dynamics function, and $f$ predicts policy and value. The superscript $k$ counts hypothetical steps from the real time $t$. The reward $\hat r_t^{k+1}$ belongs to the transition after $a_{t+k}$. We use $z$ for latent states and uppercase $Z$ for value targets.
+
+At the root, $h$ encodes the available history $\mathcal H_t=(o_0,a_0,\ldots,a_{t-1},o_t)$, using the observation/action window supplied by the implementation. To expand a child, call $g$ with the parent latent and a candidate action. Then call $f$ to obtain the new prior and leaf value. Rewards from $g$ enter the backup. Search does not need a decoded image of the successor to perform any of these operations.
+
+After a real action, the environment supplies the next observation and reward, and the next search is rooted in an encoding of the new real history. Hypothetical predictions help choose the action. Real observations anchor the next decision.
+
+There is still an environment interface and a known action encoding. In the original board-game implementation, legal actions are supplied at the root and used to mask its prior. Internal latent nodes do not query the real rules for legality. Thus the precise change is removal of the dynamics simulator from search, not removal of every piece of environment information. [MuZero, Appendix A](https://arxiv.org/html/1911.08265v2#A1)
+
+### Search Branches. Training Follows Recorded Actions
+
+During search, actions are hypothetical and branch into alternatives. During training, sample a real replay segment, encode its starting history, and unroll $g$ along the **recorded actions**. Predictions at depth $k$ must match targets from real time $t+k$.
+
+| Prediction | Depth zero | After one recorded action | After $k$ recorded actions |
+|---|---|---|---|
+| Reward | No recurrent reward target | Observed $r_{t+1}$ | Observed $r_{t+k}$ |
+| Policy | Search distribution $\pi_t$ | Search distribution $\pi_{t+1}$ | Search distribution $\pi_{t+k}$ |
+| Value | Return target $Z_t$ | Return target $Z_{t+1}$ | Return target $Z_{t+k}$ |
+
+A schematic objective separates those terms:
+
+$$
+L_t=
+\sum_{k=0}^{K}
+\left[
+\ell_v(\hat V_t^k,Z_{t+k})
++\ell_p(\hat p_t^k,\pi_{t+k})
+\right]
++\sum_{k=1}^{K}\ell_r(\hat r_t^k,r_{t+k})
++L_{\mathrm{reg}}.
+$$
+
+In a continuing single-agent segment with no intervening termination, a value target can use an $n$-step real reward prefix and the search value $\nu$ at its endpoint:
+
+$$
+Z_t=\sum_{j=0}^{n-1}\gamma^j r_{t+j+1}
++\gamma^n\nu_{t+n}.
+$$
+
+At a true terminal state, stop the reward sum and omit the continuation term. Board games instead use final outcomes with the appropriate player perspective. Original MuZero omits the reward-loss term for board games without intermediate rewards. The loss notation permits scalar or categorical reward/value targets. The original Atari implementation uses transformed categorical representations. [MuZero, algorithm and training](https://arxiv.org/html/1911.08265v2#S3)
+
+The key gradient path passes through the unrolled dynamics. If a predicted successor produces a wrong later value or policy, that error can update $g$ and the root representation $h$, as well as the prediction head $f$. The search targets are training labels. Learning the dynamics does not require differentiating through the discrete MCTS selection decisions.
+
+## What This Model Learns—and What Search Cannot Repair
+
+MuZero's original objective has no observation-reconstruction term. Its latent state must support the reward, value, and policy predictions used by the task. A visually accurate image predictor and a useful search model therefore solve different supervised problems.
+
+This motivates **value equivalence**, but does not establish it automatically. In the formal principle, two models are equivalent relative to specified classes of policies and value functions if they produce the same Bellman updates on those classes. A finite MuZero training loss is not a proof of that equality for every state, action, or future policy. A latent model also needs a correspondence between physical and latent domains before such an operator comparison is literal. [Grimm et al., *The Value Equivalence Principle*](https://arxiv.org/abs/2011.03506)
+
+Consider a task where a background object never affects reward. A compressed model may discard it successfully. If a new task rewards interacting with that object, the same representation may no longer suffice. Task-focused supervision changes which errors are penalized. It does not make all omitted information irrelevant forever.
+
+Search also inherits the model's mistakes. If an unsupported branch predicts a large reward, more simulations may reinforce that branch and produce a confident but wrong policy target. The useful evaluation is therefore not just model loss: compare the policy before search with searched behavior, vary the search budget, and check whether reward and value errors concentrate on the actions search selects.
+
+Several later directions isolate remaining limitations:
+
+| Limitation | Example response |
+|---|---|
+| Too many actions to enumerate | [Sampled MuZero](https://proceedings.mlr.press/v139/hubert21a.html) plans over sampled action subsets and accounts for sampling in policy improvement |
+| Weak learning signals with little experience | [EfficientZero](https://arxiv.org/abs/2111.00210) adds latent consistency, reward-prefix prediction, and corrections to stale value targets |
+| Search targets age as the network changes | [MuZero Unplugged](https://arxiv.org/abs/2104.06294) studies reanalyse: search stored experience again to refresh training targets |
+
+These address different bottlenecks rather than forming a single replacement chain. Original MuZero's deterministic latent transition also does not explicitly branch over chance outcomes. Handling stochastic futures requires care even when a deterministic model can learn useful expected predictions. Reanalyse similarly adds computation, not new environmental evidence: offline coverage remains a limitation.
+
+## Reading the Three Loops Separately
+
+For any algorithm in this family, trace three loops. **Search** builds temporary statistics to choose the current action. **Behavior learning** fits reusable policy/value predictions from search and experience. **Model learning**, present in MuZero but absent from AlphaZero, changes the dynamics on which later searches depend.
+
+The [Practical RL MCTS exercise](https://github.com/yandexdataschool/Practical_RL/blob/6f7fa8bc521af3d6bb47833c4670f44740f26aa6/week10_planning/seminar_MCTS.ipynb) is a useful starting point for implementing the search loop. In [Mctx](https://github.com/google-deepmind/mctx/tree/286c37a82204de2f92e81b2395906fc16bff98d9), follow the recurrent-model interface from reward, discount, policy logits, value, and next embedding into expansion and backup. Mctx supplies search algorithms. Replay, target construction, and model training still belong to the agent around it.
+
+Before moving on, explain why the reward loss begins at depth one while policy/value losses begin at depth zero. Then trace the two-ply backup above and identify where replacing known rules with learned dynamics introduces error.
+
+The [next chapter](/docs/04-model-based/latent-model-based-rl) follows the partly parallel development of latent control models. PlaNet plans through a latent model, Dreamer trains behavior in imagination, and TD-MPC combines latent planning with learned values. Their shared use of hidden states does not make their learning or action-selection procedures the same as MuZero's.

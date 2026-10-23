@@ -103,3 +103,24 @@ This page collects the materials used to write and check the handbook chapters. 
 
 - **Haarnoja et al. (2018).** [*Soft Actor-Critic Algorithms and Applications*.](https://arxiv.org/abs/1812.05905)  
   Introduces the modern SAC variant: automatic entropy-temperature tuning and the twin-Q implementation used in practice. Used in the TD3 and SAC chapter.
+
+## Model-Based RL
+
+The [Model-Based section](/docs/04-model-based/model-based-rl-framework) introduces environment dynamics, feedback, and the connection to dynamic programming, then develops policy learning with models, trajectory planning, tree search, and latent dynamics. Primary papers appear beside the claims they support. The reading list also includes optional extensions beyond that core route:
+
+| Topic | Primary reading |
+|---|---|
+| Surveys and taxonomy | [Moerland et al., 2023](https://arxiv.org/abs/2006.16712); [Luo et al., 2024](https://arxiv.org/abs/2206.09328) |
+| Learning and planning together | [Sutton, Dyna, 1990](https://papers.nips.cc/paper_files/paper/1990/hash/d9fc5b73a8d78fad3d6dffe419384e70-Abstract.html); [Moore and Atkeson, prioritized sweeping](https://proceedings.neurips.cc/paper/1992/hash/55743cc0393b1cb4b8b37d09ae48d097-Abstract.html) |
+| Probabilistic dynamics and MPC | [PILCO, 2011](https://mlg.eng.cam.ac.uk/pub/pdf/DeiRas11.pdf); [PETS, 2018](https://arxiv.org/abs/1805.12114) |
+| Control and trajectory optimization | [Tedrake, LQR notes](https://underactuated.mit.edu/lqr.html); [Li and Todorov, iLQR, 2004](https://roboti.us/lab/papers/LiICINCO04.pdf); [Tassa et al., control-limited DDP, 2014](https://roboti.us/lab/papers/TassaICRA14.pdf) |
+| Models for policy learning | [MVE, 2018](https://arxiv.org/abs/1803.00101); [STEVE, 2018](https://arxiv.org/abs/1807.01675); [MBPO, 2019](https://arxiv.org/abs/1906.08253); [SVG, 2015](https://arxiv.org/abs/1510.09142); [visuomotor Guided Policy Search, 2016](https://jmlr.org/papers/v17/15-522.html) |
+| Latent models and imagined behavior | [World Models, 2018](https://arxiv.org/abs/1803.10122); [PlaNet, 2019](https://arxiv.org/abs/1811.04551); [Dreamer, 2020](https://arxiv.org/abs/1912.01603); [DreamerV2, 2021](https://arxiv.org/abs/2010.02193); [DreamerV3, Nature 2025](https://www.nature.com/articles/s41586-025-08744-2) |
+| Latent planning and search | [TD-MPC, 2022](https://arxiv.org/abs/2203.04955); [TD-MPC2, 2024](https://arxiv.org/abs/2310.16828); [AlphaZero, 2018](https://doi.org/10.1126/science.aar6404); [MuZero, 2020](https://arxiv.org/abs/1911.08265); [value equivalence, 2020](https://arxiv.org/abs/2011.03506) |
+| Tree-search foundations | [UCT, 2006](https://doi.org/10.1007/11871842_29); [AlphaGo, 2016](https://doi.org/10.1038/nature16961); [AlphaGo Zero, 2017](https://doi.org/10.1038/nature24270) |
+| Offline learning | [MOPO, 2020](https://arxiv.org/abs/2005.13239); [MOReL, 2020](https://arxiv.org/abs/2005.05951); [COMBO, 2021](https://arxiv.org/abs/2102.08363); [Edge-of-Reach, 2024](https://arxiv.org/abs/2402.12527); [SUMO, 2025](https://ojs.aaai.org/index.php/AAAI/article/view/34206) |
+| Exploration and hierarchy | [Plan2Explore, 2020](https://arxiv.org/abs/2005.05960); [Director, 2022](https://arxiv.org/abs/2206.04114) |
+| Recent visual models | [IRIS, 2023](https://arxiv.org/abs/2209.00588); [DIAMOND, 2024](https://arxiv.org/abs/2405.12399); [V-JEPA 2, 2025 preprint](https://arxiv.org/abs/2506.09985); [Dreamer 4, 2025 preprint](https://arxiv.org/abs/2509.24527v1); [QWM, August 2026 preprint](https://arxiv.org/abs/2608.17163) |
+| Evaluation methodology | [Agarwal et al., 2021](https://arxiv.org/abs/2108.13264); [Patterson et al., 2024](https://jmlr.org/papers/v25/23-0183.html) |
+
+Author code used for implementation reading: [PETS](https://github.com/kchua/handful-of-trials), [MBPO](https://github.com/jannerm/mbpo), [DreamerV3](https://github.com/danijar/dreamerv3), [TD-MPC2](https://github.com/nicklashansen/tdmpc2), and the [Mctx search library](https://github.com/google-deepmind/mctx). Inspecting these implementations is distinct from reproducing their published experiments.

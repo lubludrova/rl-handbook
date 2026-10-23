@@ -2,8 +2,11 @@
   "title": "Model-Based",
   "defaultOpen": true,
   "pages": [
+    "model-based-rl-framework",
+    "alphazero-and-muzero",
     "dyna-and-learned-models",
     "model-predictive-control",
-    "alphazero-and-muzero"
+    "latent-model-based-rl",
+    "offline-model-based-rl"
   ]
 }

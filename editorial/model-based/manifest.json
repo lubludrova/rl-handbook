@@ -1,0 +1,136 @@
+{
+  "created": "2026-10-23",
+  "sources": {
+    "detailed": {
+      "branch": "docs/model-based-five-chapters",
+      "commit": "f22fff3035d1c7b2f2fcbb539dc0148886f377e6"
+    },
+    "paoshou-china": {
+      "branch": "model-based-chapters",
+      "commit": "c362f270f3a5060bfa972e5338c93d0ecb5e535a",
+      "author": "PaoShou-China (Donghe Chen)"
+    }
+  },
+  "files": [
+    {
+      "file": "variants/detailed/alphazero-and-muzero/index.mdx",
+      "source_commit": "f22fff3035d1c7b2f2fcbb539dc0148886f377e6",
+      "source_path": "content/docs/04-model-based/alphazero-and-muzero/index.mdx",
+      "sha256": "66e38011c5cd8e133ce50df52e3d806419d70b7c660a22d2ca77b084e196f3a9"
+    },
+    {
+      "file": "variants/detailed/dyna-and-learned-models/dyna_q.py",
+      "source_commit": "f22fff3035d1c7b2f2fcbb539dc0148886f377e6",
+      "source_path": "content/docs/04-model-based/dyna-and-learned-models/dyna_q.py",
+      "sha256": "d3aee455f77e042df04f53352a72e4dc7b01144e29155b1e8490290b90e7817e"
+    },
+    {
+      "file": "variants/detailed/dyna-and-learned-models/index.mdx",
+      "source_commit": "f22fff3035d1c7b2f2fcbb539dc0148886f377e6",
+      "source_path": "content/docs/04-model-based/dyna-and-learned-models/index.mdx",
+      "sha256": "b2f5c0a4c48ed51040d52bbcce6a3eb6fa6a1532d75e9433e021bef52895b29c"
+    },
+    {
+      "file": "variants/detailed/latent-model-based-rl/index.mdx",
+      "source_commit": "f22fff3035d1c7b2f2fcbb539dc0148886f377e6",
+      "source_path": "content/docs/04-model-based/latent-model-based-rl/index.mdx",
+      "sha256": "c4ab39492dc78c8093580b0ca7d2a7440ddf2cf73ff1340a135207d6662969ee"
+    },
+    {
+      "file": "variants/detailed/model-based-rl-framework/figures/planning-and-interaction.png",
+      "source_commit": "f22fff3035d1c7b2f2fcbb539dc0148886f377e6",
+      "source_path": "content/docs/04-model-based/model-based-rl-framework/figures/planning-and-interaction.png",
+      "sha256": "be3cde42561c82a341a35a0338d3d2610655c74963b7218b66def32c37ea29de"
+    },
+    {
+      "file": "variants/detailed/model-based-rl-framework/index.mdx",
+      "source_commit": "f22fff3035d1c7b2f2fcbb539dc0148886f377e6",
+      "source_path": "content/docs/04-model-based/model-based-rl-framework/index.mdx",
+      "sha256": "da7827ad279336c71e907d4b0ce64f4b9d89c62dc3c49d26d09e047d1fe13cba"
+    },
+    {
+      "file": "variants/detailed/model-predictive-control/index.mdx",
+      "source_commit": "f22fff3035d1c7b2f2fcbb539dc0148886f377e6",
+      "source_path": "content/docs/04-model-based/model-predictive-control/index.mdx",
+      "sha256": "c864401dfda5a4aa7e0861113ff358bbf04fb542596d78706e976bc2e8aab6f4"
+    },
+    {
+      "file": "variants/paoshou-china/alphazero-and-muzero/index.mdx",
+      "source_commit": "c362f270f3a5060bfa972e5338c93d0ecb5e535a",
+      "source_path": "content/docs/04-model-based/alphazero-and-muzero/index.mdx",
+      "sha256": "8f237aab52c229bb5a649fa39e45683914a4b7fe7418fd2932e9d52cb7271e61"
+    },
+    {
+      "file": "variants/paoshou-china/dyna-and-learned-models/index.mdx",
+      "source_commit": "c362f270f3a5060bfa972e5338c93d0ecb5e535a",
+      "source_path": "content/docs/04-model-based/dyna-and-learned-models/index.mdx",
+      "sha256": "a4308468ea4065a72cb6ebd319a7ffd4d9958f7b81a485356df3dd147bd47409"
+    },
+    {
+      "file": "variants/paoshou-china/latent-model-based-rl/index.mdx",
+      "source_commit": "c362f270f3a5060bfa972e5338c93d0ecb5e535a",
+      "source_path": "content/docs/04-model-based/latent-model-based-rl/index.mdx",
+      "sha256": "f8a23b3db1fe836adb34344499479f046d2843b60b07d2a3fb990dcf90e1813d"
+    },
+    {
+      "file": "variants/paoshou-china/model-based-rl-framework/figures/planning-and-interaction.png",
+      "source_commit": "c362f270f3a5060bfa972e5338c93d0ecb5e535a",
+      "source_path": "content/docs/04-model-based/model-based-rl-framework/figures/planning-and-interaction.png",
+      "sha256": "be3cde42561c82a341a35a0338d3d2610655c74963b7218b66def32c37ea29de"
+    },
+    {
+      "file": "variants/paoshou-china/model-based-rl-framework/index.mdx",
+      "source_commit": "c362f270f3a5060bfa972e5338c93d0ecb5e535a",
+      "source_path": "content/docs/04-model-based/model-based-rl-framework/index.mdx",
+      "sha256": "0eec7442633d9da8f842cc4d099a07a6bf2a86b9f5756bf3cedd514e05749b1d"
+    },
+    {
+      "file": "variants/paoshou-china/model-predictive-control/index.mdx",
+      "source_commit": "c362f270f3a5060bfa972e5338c93d0ecb5e535a",
+      "source_path": "content/docs/04-model-based/model-predictive-control/index.mdx",
+      "sha256": "21987c4b15333bafd2ba370a9b81767bbcda09f07d3350a77ed1a6a5d4d684aa"
+    },
+    {
+      "file": "variants/paoshou-china/offline-model-based-rl/index.mdx",
+      "source_commit": "c362f270f3a5060bfa972e5338c93d0ecb5e535a",
+      "source_path": "content/docs/04-model-based/offline-model-based-rl/index.mdx",
+      "sha256": "bb2a6d40e3c8016786b0d778a23ef14296d46be252d405953a5694748b9f309b"
+    },
+    {
+      "file": "variants/detailed/offline-model-based-rl/index.mdx",
+      "source_path": "local/model-based-before-five-chapters/offline-model-based-rl.mdx",
+      "source_note": "Detailed offline chapter retained from the original eleven-chapter draft. Not part of the five-chapter snapshot commit.",
+      "sha256": "6a33b95aaf974000b11d6d98bfc202d32250397e71692cb55185720b4e2150ff"
+    },
+    {
+      "file": "variants/paoshou-china/support/src/components/billiards/BilliardsPlayground.tsx.txt",
+      "source_commit": "c362f270f3a5060bfa972e5338c93d0ecb5e535a",
+      "source_path": "src/components/billiards/BilliardsPlayground.tsx",
+      "sha256": "b25f04db8b5b6bd446d2373f3035da6f193d748712d7717af9f5b1f6267227f9"
+    },
+    {
+      "file": "variants/paoshou-china/support/src/components/billiards/billiards.module.css.txt",
+      "source_commit": "c362f270f3a5060bfa972e5338c93d0ecb5e535a",
+      "source_path": "src/components/billiards/billiards.module.css",
+      "sha256": "7a05a502054410de07d23edd67a653e09379c34e6cdda6e2da259210cff8dc10"
+    },
+    {
+      "file": "variants/paoshou-china/support/src/components/billiards/model.mjs.txt",
+      "source_commit": "c362f270f3a5060bfa972e5338c93d0ecb5e535a",
+      "source_path": "src/components/billiards/model.mjs",
+      "sha256": "a6867d56abd6e4b5ec61ae7f655d4e3bb18674ff3be811ee3b465ad1c5e7e401"
+    },
+    {
+      "file": "variants/paoshou-china/support/src/components/billiards/model.test.mjs.txt",
+      "source_commit": "c362f270f3a5060bfa972e5338c93d0ecb5e535a",
+      "source_path": "src/components/billiards/model.test.mjs",
+      "sha256": "88113d48cee45866e1bafdc72aedcb6d3a421d77f13c9e221055a141d9414561"
+    },
+    {
+      "file": "variants/paoshou-china/support/src/components/model-based/ModelFlow.tsx.txt",
+      "source_commit": "c362f270f3a5060bfa972e5338c93d0ecb5e535a",
+      "source_path": "src/components/model-based/ModelFlow.tsx",
+      "sha256": "bc8161863cc253c0205dd04080e6eaca0d5c437fbcc34ff7284e8373cea44b78"
+    }
+  ]
+}

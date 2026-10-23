@@ -1,0 +1,335 @@
+---
+title: Dyna and Learning Policies with Models
+description: From tabular Dyna-Q to short model rollouts, synthetic replay, and reusable policies in MBPO.
+---
+
+This is the **model for learning** branch of the [Model-Based Framework](/docs/04-model-based/model-based-rl-framework). The model supplies experience or learning targets. The result is stored in a value function or policy. In Dyna-Q, acting uses the learned $Q$ table. In MBPO, it uses an actor. Neither requires an action-sequence search whenever the environment asks for an action.
+
+The starting assumptions are an observed Markov state, a reward signal, and access to new environment interactions. Tabular Dyna-Q initially assumes deterministic transitions. Stochastic environments require representing possible outcomes, while continuous state spaces motivate function approximation and generalization. The central limitation is that extra model computation provides **no new environmental evidence**. It can accelerate useful learning, but it can also repeatedly reinforce an incorrect prediction. An off-policy learner's ability to reuse old transitions does not make invented transitions unbiased.
+
+**Environments.** A small maze or corridor makes the mechanism visible: after discovering a reward, an agent can update earlier choices without walking the route again. Later, state-based continuous-control tasks such as Hopper and HalfCheetah replace the table with a learned dynamics model and an actor-critic. Image-based control needs an additional state-inference mechanism, which we defer to [latent model-based RL](/docs/04-model-based/latent-model-based-rl).
+
+> **Abstract.** Dyna integrates acting, model learning, and value learning. Its simplest form applies the same Q-learning backup to real and modeled transitions. Scaling that idea to neural networks creates a new question: how much synthetic experience should the learner trust? We follow the path from Dyna-Q to short branched rollouts in MBPO, then distinguish synthetic data from other ways a model can teach a policy.
+
+**Prerequisites:** [dynamic programming](/docs/01-value-based/dynamic-programming), [Q-learning](/docs/01-value-based/sarsa-and-q-learning), and, for MBPO, [SAC](/docs/03-off-policy-policy-based/td3-and-sac).
+
+## The Problem: Useful Experience Arrives Slowly
+
+Imagine a robot learning a corridor. It has already crossed the first two sections, but discovers the exit only now. A Q-learning update immediately improves the last action. Earlier actions keep their old values until the robot revisits them or the learner reuses their transitions.
+
+Dynamic programming would propagate this information through a known transition model. The difficulty here is that the robot does not initially know how the corridor connects. Sutton's Dyna architecture, introduced in 1990, brings model learning into the same loop as acting and value learning: fit the model from experience and immediately use what it has learned for additional backups. The model need not be completed before it becomes useful. [Sutton, Integrated Modeling and Control](https://papers.nips.cc/paper_files/paper/1990/hash/d9fc5b73a8d78fad3d6dffe419384e70-Abstract.html)
+
+In this chapter, **planning** means computation with a model to improve behavior. Dyna's planning steps update reusable values. They do not search for a fresh action sequence at the current state. Decision-time trajectory optimization is a different use of the model, developed in the [next chapter](/docs/04-model-based/model-predictive-control).
+
+Write a transition as
+
+$$
+(s_t,a_t,r_{t+1},s_{t+1},d_{t+1}),
+$$
+
+where $d_{t+1}=1$ denotes true episode termination. A learned model predicts the next state, reward, and termination, or uses known reward and termination rules where available. An artificial cutoff in data collection is not necessarily a terminal transition.
+
+## Dyna-Q: One Update Rule, Two Sources of Transitions
+
+For a sampled transition, terminal-aware Q-learning uses
+
+$$
+Q(s_t,a_t)\leftarrow Q(s_t,a_t)+
+\alpha\left[
+r_{t+1}+\gamma(1-d_{t+1})\max_a Q(s_{t+1},a)
+-Q(s_t,a_t)
+\right].
+$$
+
+The bracket is a temporal-difference error. The same algebra works whether the transition came from the environment or from a model. Its reliability does not: a real sample is evidence about the environment, while a modeled sample is evidence about the current model.
+
+In the simplest deterministic Dyna-Q implementation, store
+
+$$
+\operatorname{Model}(s,a)=(r,s',d).
+$$
+
+After observing a transition, perform a direct Q-learning update and replace the corresponding model entry. Then perform $n$ planning updates using previously observed state-action pairs. Here is the complete control loop:
+
+1. Select an action using an exploratory policy derived from $Q$, such as $\epsilon$-greedy.
+2. Execute it and observe the real transition.
+3. Update $Q$ from that transition.
+4. Update the model entry for the experienced pair.
+5. Repeat $n$ times: select a stored pair, query the model, and apply the same Q-learning update.
+6. Continue from the observed next state, or reset after termination.
+
+The model supplies outcomes. It does not supply new observations. Increasing $n$ gives the learner more opportunities to propagate what it already knows. It cannot discover an unobserved exit unless the model makes an additional, possibly wrong, assumption about it.
+
+For a stochastic environment, retaining only the last successor is generally inadequate. A tabular model could instead maintain counts for outcomes and estimate their conditional probabilities. A generative model could sample an outcome. The deterministic table in this chapter is deliberately scoped to deterministic dynamics. [Sutton and Barto, Chapter 8](https://www.andrew.cmu.edu/course/10-703/textbook/BartoSutton.pdf)
+
+### A Numerical Backup Trace
+
+Consider a chain with one available action:
+
+$$
+A \xrightarrow{0} B \xrightarrow{0} C \xrightarrow{1} T.
+$$
+
+$T$ is terminal. Let $\gamma=0.9$, $\alpha=1$, and initialize all action values to zero. On the first real traversal, the updates at $A$ and $B$ still see zero successor values. The final transition sets $Q(C)=1$.
+
+Now suppose the planning sampler chooses the stored transition from $B$, followed by the one from $A$:
+
+| Update | Target | Values afterward: $Q(A),Q(B),Q(C)$ |
+|---|---|---|
+| Real: $C$ to $T$ | $1$ | $0,\ 0,\ 1$ |
+| Model: $B$ to $C$ | $0+0.9(1)$ | $0,\ 0.9,\ 1$ |
+| Model: $A$ to $B$ | $0+0.9(0.9)$ | $0.81,\ 0.9,\ 1$ |
+
+Two useful backups propagate the reward without two more real actions. A random sampler is not guaranteed to choose that order. It may need more updates. This example isolates the mechanism rather than claiming a fixed speedup.
+
+If the model incorrectly reports reward $10$ at the exit, those same backups efficiently propagate the wrong answer. Planning amplifies information, including model errors.
+
+## Sample Backups and Expected Backups
+
+A sample backup uses one predicted outcome, as above. An expected backup sums over the model's outcome distribution:
+
+$$
+Q(s,a)\leftarrow Q(s,a)+\alpha\left[
+\sum_{s',r,d}\hat p(s',r,d\mid s,a)
+\left(r+\gamma(1-d)\max_{a'}Q(s',a')\right)
+-Q(s,a)
+\right].
+$$
+
+The expectation removes sampling noise conditional on the fitted model. It does not remove error in that model. It may also be expensive when there are many possible successors.
+
+For example, suppose an action reaches a good state with probability $0.1$ and a bad state with probability $0.9$. One sampled rollout can miss the good branch. An exact expectation includes it. But if the fitted model incorrectly assigns probability $0.9$ to the good state, evaluating that expectation exactly still gives the wrong target.
+
+This separates three budgets that are easy to confuse: real data, model accuracy, and planning computation. More compute helps approximate the solution of the current model. Real data can help improve the model. Neither substitutes for the other in every regime.
+
+## How Is This Different from Replay?
+
+Experience replay stores real transitions and samples them again. A learned dynamics model can generate transitions for a requested state-action pair, potentially including pairs not explicitly recorded.
+
+In a deterministic tabular setting, replay and a model table can produce the same update. Both can propagate the corridor reward backward. The distinction becomes consequential when the environment is stochastic, data are compressed, the model generalizes, or the agent asks about an unobserved action.
+
+Replay can be interpreted as a restricted empirical model on observed data. That interpretation does not make it a perfect simulator: repeated copies of one transition do not reveal its true probability, and no replay entry tells us what an untried action would have done.
+
+| Operation | What it reuses | Can it answer arbitrary new transition queries? |
+|---|---|---|
+| Replay | Recorded outcomes | No |
+| Tabular empirical model | Estimated outcome frequencies | Only on covered pairs, unless a default is added |
+| Learned function model | Shared predictive structure | It can output an answer. Correctness requires generalization |
+| Known simulator | Specified rules | Within the simulator's domain and assumptions |
+
+The last distinction matters in robotics. A simulator may be exact for its equations while inaccurate for the physical robot. “Known model” describes availability of rules, not automatic agreement with reality.
+
+## Which Planning Updates Are Worth Doing?
+
+Uniformly sampling past state-action pairs is simple but can waste backups. After discovering the exit, updating a distant dead end may matter less than updating the exit's predecessors.
+
+**Prioritized sweeping** focuses on transitions whose Bellman targets have changed substantially. Maintain a predecessor relation: which state-action pairs can lead to a state? When a value changes, consider those predecessors for a priority queue. A typical priority is the magnitude of the proposed TD change,
+
+$$
+P(s,a)=
+\left|\hat r(s,a)+\gamma \hat{\mathbb E}
+\left[(1-d)\max_{a'}Q(s',a')\right]-Q(s,a)\right|.
+$$
+
+Pairs with priority above a threshold enter the queue. Pop a high-priority pair, update it, and propagate its effect to predecessors. In the corridor, this naturally moves information from $C$ to $B$ to $A$. In a stochastic model, predecessor relationships carry transition probabilities. A single reverse pointer is not the whole algorithm. [Moore and Atkeson, prioritized sweeping](https://proceedings.neurips.cc/paper/1992/hash/55743cc0393b1cb4b8b37d09ae48d097-Abstract.html)
+
+This is a choice about **where to spend backups**, not a new environment reward. It also differs from prioritized experience replay: both prioritize computation, but prioritized sweeping explicitly propagates changes through a model's predecessor structure.
+
+### When the Environment Changes: Dyna-Q+
+
+Suppose a previously blocked doorway opens. Ordinary Dyna-Q may keep planning with the old blocked-door transition. If its behavior no longer visits that doorway, the model receives no corrective evidence.
+
+Dyna-Q+ encourages revisiting stale knowledge. During planning, augment a stored reward with
+
+$$
+\tilde r(s,a)=\hat r(s,a)+\kappa\sqrt{\tau(s,a)},
+$$
+
+where $\tau(s,a)$ counts real time steps since that pair was last tried and $\kappa$ controls the exploration bonus. The environment's actual reward is unchanged.
+
+The textbook algorithm also permits planning with actions not yet tried in previously observed states. Their initial model is a zero-reward self-loop, with the elapsed-time bonus applied during planning. Merely adding a bonus to the already tried pairs misses this part of Dyna-Q+.
+
+The bonus makes uncertain or stale actions attractive enough to test. It is an exploration mechanism, not evidence that they are profitable. After a real test, the model and elapsed-time record are updated. [Sutton and Barto, Section 8.3](https://www.andrew.cmu.edu/course/10-703/textbook/BartoSutton.pdf)
+
+## A Small Implementation You Can Run
+
+The accompanying `dyna_q.py`, in this chapter's source directory, uses only the Python standard library. From the repository root:
+
+~~~bash
+python content/docs/04-model-based/dyna-and-learned-models/dyna_q.py
+~~~
+
+It first checks the corridor backup values and terminal masking. It then compares $n=0$ and $n=10$ on a small deterministic corridor over the same real-interaction budget and several seeds. The table is an illustration of this environment. It is not a benchmark result for model-based RL.
+
+The runnable environment has states $0,\ldots,5$, starts at $0$, and ends at $5$. Left and right move one position. Moving left at $0$ stays there. Only entering $5$ gives reward $1$, followed by a reset. Both learners use $\epsilon=0.2$, $\alpha=0.5$, $\gamma=0.95$, and 200 real transitions per seed. The output reports completed episodes and the learned value of moving right at state $0$, averaged over seeds 0–4.
+
+The essential implementation is short:
+
+~~~python
+def backup(q, state, action, reward, next_state, terminated, alpha, gamma):
+    next_value = 0.0 if terminated else max(q[next_state])
+    target = reward + gamma * next_value
+    q[state][action] += alpha * (target - q[state][action])
+~~~
+
+The planning loop calls this same function with an entry from the learned table. The full example uses separate random generators for behavior and planning, so additional planning draws do not silently change the behavior generator's stream. Policies can still diverge because their learned values diverge.
+
+The implementation also exposes three useful boundaries. Unknown transitions are never queried by ordinary Dyna-Q. True terminal transitions never bootstrap, even if the terminal row contains an accidental nonzero value. An artificial interaction-budget cutoff does not turn the last visited state into a terminal state.
+
+For comparison with the handbook's existing teaching sources, inspect the [Boyu Dyna-Q notebook at a fixed commit](https://github.com/boyu-ai/Hands-on-RL/blob/4a151a4bfeafd3061c0e0ef59bece25ca8fb2bf8/第6章-Dyna-Q算法.ipynb). Trace the direct update, model assignment, and planning loop. Its terminal handling relies on the example's state-value convention. The explicit flag above makes the assumption visible.
+
+## The Next Problem: A Table Cannot Generalize
+
+A table works when the same small collection of state-action pairs recurs. In continuous control, almost every measured joint configuration is different. We need a function that shares information between nearby transitions.
+
+A common neural model predicts a state change,
+
+$$
+\hat s_{t+1}=s_t+\Delta_\phi(s_t,a_t),
+$$
+
+where $\phi$ are fitted parameters. Squared prediction error is a simple training objective for nearly deterministic dynamics. For uncertain transitions, a probabilistic model instead predicts a distribution, often a Gaussian with learned mean and variance. Maximum-likelihood training minimizes
+
+$$
+L_{\mathrm{model}}(\phi)=
+-\mathbb E_{\mathcal D_{\mathrm{real}}}
+\left[\log\hat p_\phi(s_{t+1},r_{t+1}\mid s_t,a_t)\right].
+$$
+
+If the reward is a known function, it can be evaluated directly instead of being learned. Termination likewise needs either a known rule or a correctly trained prediction. State normalization, valid angle representations, and held-out trajectories matter: a low loss on nearly duplicated frames is weak evidence of generalization.
+
+This substitution changes more than storage. The table answers queries using recorded outcomes. The network can answer queries about an action never tried at that exact state. That is the source of both its usefulness and its risk. The model's training distribution contains actions from past behavior, while policy improvement deliberately proposes new actions.
+
+A second shift occurs during recursive prediction: after one imperfect step, the next query begins at an imagined state. A small error in foot contact can eventually produce a physically impossible posture. A policy optimized on such trajectories may become good at exploiting the model's mistakes.
+
+The natural first attempt is to collect real data, fit a model, generate trajectories under the policy, and train the policy on them. Neural ensemble methods such as [ME-TRPO, 2018](https://arxiv.org/abs/1802.10592) investigated how variation across models could regularize this loop. But an ensemble does not make an arbitrarily long imagined trajectory reliable. The next design choice is how far each use of the model should extend.
+
+## MBPO: Short Rollouts, Many Learning Updates
+
+The 2019 Model-Based Policy Optimization algorithm, **MBPO**, makes a direct modern connection to Dyna: use the learned model to supply extra transitions to an off-policy learner. Its distinguishing practical choice is to generate **short branched rollouts starting from real replay states**, then train SAC on real and synthetic experience. It reuses the probabilistic ensemble model family also studied in PETS, but the two algorithms use those predictions differently: PETS plans actions. MBPO trains a reusable actor. [Janner et al., MBPO, Section 5 and Algorithm 2](https://arxiv.org/abs/1906.08253)
+
+Maintain two buffers:
+
+$$
+\mathcal D_{\mathrm{real}}
+\quad\text{and}\quad
+\mathcal D_{\mathrm{model}}.
+$$
+
+The first contains actual environment transitions. The second contains transitions predicted by the current or recent fitted model. Model fitting uses real data. Mixing synthetic predictions back into its supervision without a deliberate method would risk teaching the model to confirm its own errors.
+
+A typical iteration is:
+
+1. Collect real transitions with the current policy and add them to $\mathcal D_{\mathrm{real}}$.
+2. Fit the probabilistic ensemble to real transitions.
+3. Sample starting states from $\mathcal D_{\mathrm{real}}$.
+4. From each start, sample policy actions and model outcomes for at most $k$ steps, stopping on predicted termination.
+5. Store these transitions in $\mathcal D_{\mathrm{model}}$.
+6. Perform SAC updates using a chosen mixture of real and modeled transitions.
+
+Branching from real states limits how long prediction errors can accumulate before a rollout starts again from observed data. It does not make the first synthetic step exact: the current policy can still choose an action poorly covered by the dataset.
+
+### A Concrete Batch
+
+Suppose we sample 1,000 starting states and use $k=1$. This produces at most 1,000 synthetic transitions. With $k=5$, it produces at most 5,000. Trajectories that terminate produce fewer.
+
+Now choose a learner minibatch of 256 transitions with approximately 5% real samples: 13 real and 243 synthetic samples. That mixture does **not** mean the world model was trained on 5% real data. It describes the actor-critic's training batch.
+
+Finally, choose how many gradient updates to perform per newly collected real transition. Increasing that number reuses the available buffers more heavily. It is independent of both $k$ and the real-data fraction.
+
+The numbers here are illustrative, not a prescription. They expose three separate controls:
+
+| Control | What it changes | Typical risk if pushed too far |
+|---|---|---|
+| Rollout length $k$ | Distance from an observed starting state | Compounding model error |
+| Synthetic fraction | How much learner supervision relies on predictions | Biased targets dominate |
+| Updates per real transition | Reuse of the available supervision | Overfitting or instability |
+
+A schedule may increase $k$ as the model improves, but elapsed training time alone is not evidence that a longer rollout is trustworthy.
+
+## What SAC Sees
+
+For either kind of replay transition, a standard SAC critic target has the form
+
+$$
+y=r_{t+1}+\gamma(1-d_{t+1})
+\left[
+\min_i Q_{\bar w_i}(s_{t+1},a')
+-\alpha_{\mathrm{ent}}\log\pi_\theta(a'\mid s_{t+1})
+\right],
+\qquad
+a'\sim\pi_\theta(\cdot\mid s_{t+1}).
+$$
+
+Here $\bar w_i$ are the target critics' parameters, and $\alpha_{\mathrm{ent}}$ is the entropy temperature, distinct from the Q-learning step size $\alpha$. The target is held fixed during each critic update. With a real transition, the immediate reward, successor, and terminal label are observations. With a synthetic transition, some or all are model outputs. The critic loss can have identical code in both cases while its target has different statistical reliability.
+
+The actor follows SAC's critic-based objective. In MBPO, it does not need to backpropagate through the transition network. At acting time, the policy receives the observed state and outputs an action. No CEM search is required.
+
+This design makes a model useful even when its derivatives are unhelpful or when the actor-critic implementation is already available. It also means improved supervised model loss and improved SAC loss do not independently establish improved real return.
+
+The official implementation makes the data flow easy to trace. In the [pinned MBPO algorithm](https://github.com/jannerm/mbpo/blob/ac694ff9f1ebb789cc5b3f164d9d67f93ed8f129/mbpo/algorithms/mbpo.py), inspect `_rollout_model` for replay starting states and termination filtering, then `_training_batch` for the real/model mixture. [`fake_env.py`](https://github.com/jannerm/mbpo/blob/ac694ff9f1ebb789cc5b3f164d9d67f93ed8f129/mbpo/models/fake_env.py) supplies the model-backed transition interface.
+
+## Why Short Can Be Better Than Long
+
+Imagine a model that predicts an unstable robot's next joint angle reasonably well. After ten recursive steps, a small contact error may place the robot in an impossible posture. SAC trained on that imagined state may learn an action whose value is meaningless in reality.
+
+With one-step branches, every prediction begins at a recorded posture. The policy still obtains many additional action-conditioned transitions, but fewer target states depend on a long chain of previous errors.
+
+This is a bias-computation tradeoff, not a claim that one-step models solve long-term prediction. The critic supplies the long-term bootstrap. If that critic is unreliable at synthetic next states, shortening the model does not remove all error.
+
+### What the MBPO Theory Does and Does Not Promise
+
+The paper develops bounds relating model return, model error, and policy distribution shift. Such results explain why unconstrained optimization of an imperfect model can hurt real performance.
+
+Its worst-case branched-rollout bound can favor $k=0$: under sufficiently pessimistic error accounting, every extra modeled step is a liability. The argument for useful short positive horizons incorporates a more informative discussion of model generalization and empirical evidence. [MBPO, Sections 4.2–4.3](https://arxiv.org/abs/1906.08253)
+
+Therefore, do not read the title's “when to trust your model” as a certificate delivered by an ensemble disagreement score. The practical algorithm, with finite data, neural networks, heuristic schedules, and approximate SAC updates, has no unconditional guarantee of monotonic real-policy improvement.
+
+## Other Ways a Model Can Teach a Policy
+
+Synthetic replay is one answer to the policy-learning problem. Several parallel directions use a different part of the model's information. They are not successive versions of MBPO: PILCO and Guided Policy Search predate it, and value expansion was developed alongside the neural-model work of the late 2010s.
+
+| Model's role | What changes in learning | Representative approach |
+|---|---|---|
+| Synthetic data | The learner receives additional transitions | Dyna-Q, MBPO |
+| Value target | Predicted rewards replace a prefix of a bootstrap estimate | MVE, STEVE |
+| Differentiable dynamics | Policy gradients follow predicted state changes | PILCO, stochastic value gradients |
+| Teacher | Optimized trajectories guide a reusable policy | Guided Policy Search |
+
+### Predict Part of a Value Target
+
+Model-Based Value Expansion (**MVE**, 2018) asks a narrower question than generating an entire training buffer: can a short modeled future improve a particular return estimate? For a fixed policy and a nonterminal rollout of $H$ steps,
+
+$$
+\hat G_H(s_t)=
+\sum_{j=0}^{H-1}\gamma^j\hat r_{t+j+1}
++\gamma^H V_{\bar w}(\hat s_{t+H}).
+$$
+
+Actions follow the policy and $\hat s_t=s_t$. For an action-value target, fix the first action to the action being evaluated. Termination stops the reward sum and removes the bootstrap. An artificial rollout cutoff retains it. [Feinberg et al., MVE](https://arxiv.org/abs/1803.00101)
+
+Let $H=2$, $\gamma=0.9$, predicted rewards be $1$ and $2$, and the endpoint value be $5$. The target is $1+0.9(2)+0.9^2(5)=6.85$. This replaces some critic prediction with explicit modeled rewards. It is better only if that replacement reduces error: even a correct transition model can reach endpoints at which the critic is poorly trained.
+
+**STEVE**, also from 2018, combines targets from several horizons using model and value ensembles. Its targets begin with a real replay transition. A zero-step model expansion then recovers an ordinary one-step TD target. Horizons with lower estimated variance receive more weight. Shared trajectories and shared model errors make those targets correlated and potentially biased, so inverse-variance weighting is a useful approximation rather than a universal optimality guarantee. [Buckman et al., STEVE](https://arxiv.org/abs/1807.01675)
+
+### Differentiate Through Dynamics or Learn from a Teacher
+
+**PILCO** (2011) uses Gaussian-process dynamics and approximate propagation of state distributions to differentiate expected cost with respect to policy parameters. **Stochastic Value Gradients** (2015) develops pathwise policy gradients through stochastic models. Unlike MBPO, these methods use derivatives of predicted consequences in policy improvement. Freezing a model's parameters during an actor update does not prevent differentiating through its inputs. [PILCO](https://mlg.eng.cam.ac.uk/pub/pdf/DeiRas11.pdf); [Heess et al., SVG](https://arxiv.org/abs/1510.09142)
+
+Their additional difficulty is that accurate predictions need not have accurate derivatives. Long products of model Jacobians can also become unstable. We will meet related questions when learning behavior in the imagination of a latent world model.
+
+**Guided Policy Search** connects local trajectory optimization to global policy learning. The original 2013 method uses guiding trajectories with importance-sampled policy optimization. Later supervised formulations alternate between generating useful local behavior and fitting a global policy, while controlling the mismatch between their state distributions. This is another way to spend expensive planning computation during training and obtain cheap policy evaluation at acting time. [Levine and Koltun, 2013](https://proceedings.mlr.press/v28/levine13.html); [Levine et al., 2016](https://www.jmlr.org/papers/v17/15-522.html)
+
+These examples also explain why “model for learning” and “model for acting” can overlap. A planner can teach a policy, and a policy can propose actions to a planner. The defining question is which computation consumes the model, not whether the final system contains a neural actor.
+
+## What Would Show That the Model Helps?
+
+For the corridor, compare equal numbers of real interactions with and without modeled backups. For MBPO, also compare a replay-only learner with comparable update effort: otherwise, gains from extra optimization can be mistaken for gains from synthetic data. Report real return, training computation, and action-selection latency separately.
+
+The diagnostic is not simply whether model loss decreases. Inspect whether short predicted transitions remain accurate under the current policy, whether synthetic targets make the critic more reliable, and whether the resulting actor improves in the real environment. Increasing rollout length, synthetic fraction, and update count changes three different things. Varying them together hides the cause of a result.
+
+The online setting matters. New interactions can expose an invented shortcut and correct the model. With a fixed offline dataset, the loop loses this source of correction. Short rollouts and ensemble agreement alone do not justify unsupported actions or bootstrap values. The framework's [offline discussion](/docs/04-model-based/model-based-rl-framework#what-changes-offline) explains the data-support problem.
+
+Before continuing, trace one transition through both algorithms. In Dyna-Q, which quantities change after a real transition, and which after a planning update? In MBPO, where does the first imagined state come from, which data fit the model, and why can the actor learn without differentiating through dynamics?
+
+The [next chapter, Planning and Model Predictive Control](/docs/04-model-based/model-predictive-control), follows a parallel control tradition. There the model is used to optimize behavior at the current state. We begin with LQR to see that a model can also yield a feedback law directly, before introducing nonlinear trajectory optimization, MPC, and learned dynamics in PETS.

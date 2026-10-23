@@ -34,6 +34,7 @@ next-env.d.ts
 # project internals
 .opencode/
 /.claude/
+/local/
 
 # local editor state
 content/docs/.obsidian/

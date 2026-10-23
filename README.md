@@ -55,7 +55,12 @@ This handbook gives a comprehensive, up-to-date guide to reinforcement learning 
 
 ### Model-Based
 
-To be done soon.
+- [Model-Based Framework](https://rl-handbook.com/docs/04-model-based/model-based-rl-framework)
+- [Tree Search: From MCTS to MuZero](https://rl-handbook.com/docs/04-model-based/alphazero-and-muzero)
+- [Dyna and Learning Policies with Models](https://rl-handbook.com/docs/04-model-based/dyna-and-learned-models)
+- [Planning and Model Predictive Control](https://rl-handbook.com/docs/04-model-based/model-predictive-control)
+- [Latent Model-Based RL: PlaNet, Dreamer, and TD-MPC](https://rl-handbook.com/docs/04-model-based/latent-model-based-rl)
+- [Offline Model-Based RL](https://rl-handbook.com/docs/04-model-based/offline-model-based-rl)
 
 ### Advanced Topics
 
@@ -65,12 +70,14 @@ To be done soon.
 
 Each chapter is a self-contained folder under `content/docs/<section>/<chapter>/` holding its MDX source, runnable example, and figures together.
 
+For model-based chapter revisions, follow the [editorial guide](editorial/model-based/README.md). It records the primary draft, both original variants, and the current Tree Search review plan.
+
 ```text
 content/docs/<section>/<chapter>/
 ├── index.mdx              chapter source
 ├── <chapter>.py           runnable example (when present)
 └── figures/               images, gifs, diagrams
-```
+```  
 
 Supporting code lives outside `content/`:
 
