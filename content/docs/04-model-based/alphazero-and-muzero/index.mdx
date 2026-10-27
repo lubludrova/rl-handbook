@@ -3,249 +3,671 @@ title: "Tree Search: From MCTS to MuZero"
 description: "How Monte Carlo tree search, self-play, and learned dynamics connect in AlphaGo, AlphaZero, and MuZero."
 ---
 
-> **Abstract.** Tree search occupies the decision-time planning branch of the [model-based framework](/docs/04-model-based/model-based-rl-framework): the agent uses a model to compare actions before acting. Neural search also connects this branch to behavior learning, because search results can train a policy and a value function. MCTS supplies the search procedure. AlphaGo and AlphaZero learn its guidance while keeping known game rules. MuZero also learns the dynamics used inside the tree.
+> **Abstract.** We begin our study of model-based methods with tree search: using a model to explore possible consequences before choosing an action. This is a natural starting point for tasks with discrete actions, such as board games, where each move opens a set of possible continuations. Starting with known game rules lets us understand search before introducing model learning. We develop Monte Carlo tree search, then study AlphaZero, which learns policy and value predictions to guide search, and MuZero, which also learns the dynamics used inside the tree.
 
-The basic setting is a sequential task with a manageable set of candidate actions, a model that can advance hypothetical states, and enough computation between real actions. In the board-game examples, the state includes the information required by the rules, including the player to move and relevant history. Two-player zero-sum values need a player convention. Chance outcomes and hidden information require additional treatment. The basic game tree is not a general solution to either problem. A learned model adds another limitation: searching it more thoroughly can amplify an incorrect prediction.
+In the [Model-Based Framework](/docs/04-model-based/model-based-rl-framework), we introduced **decision-time planning**: using a model to compare possible futures before choosing the next action. We distinguished two common approaches within this family: **tree search** and **trajectory planning**. Tree search organizes possible continuations into a branching structure and allocates computation among them. In a board game, this means examining candidate moves, the opponent’s replies, and our subsequent responses. Trajectory planning instead searches for a sequence of actions over a chosen horizon, for example a sequence of steering and acceleration commands. Model predictive control (MPC) uses such a plan by executing its first action and planning again after observing the result. Discrete moves make tree search particularly easy to follow, while trajectory optimization is often convenient for continuous controls. We begin with tree search and known game rules so that we can understand how a model supports action selection before introducing model learning.
 
-These assumptions explain the environments used along this line:
+<span id="the-search-problem-where-should-computation-go" />
 
-| Environment | What search must resolve | What the model supplies |
-|---|---|---|
-| A small game such as Connect Four | Whether a promising move permits an immediate opposing win | Known legal moves, successor positions, and terminal outcomes |
-| Go | Many plausible moves and difficult position evaluation | Exact rules. Learned priors and values make the search selective |
-| Chess and shogi | Tactical sequences, different action encodings, and possible draws | Exact rules in AlphaZero, learned latent transitions in MuZero |
-| Atari | Consequences of discrete controls from image history, with intermediate rewards | MuZero predicts rewards and latent successors without calling the emulator during search |
+## Tree Search as Planning
 
-The control loop observes the environment again after acting. That makes it a feedback controller, but does not make every tree-search method an instance of the finite-horizon trajectory optimization introduced in [MPC](/docs/04-model-based/model-predictive-control). Here the central object is a branching tree whose search statistics can also supervise learning.
+Suppose a model can tell us what follows every available action. How should we use it to choose the next one? The most direct answer is to examine all possible continuations, compute their returns, and work backward to the current decision. Before making this procedure efficient, let us understand what it would compute if we could afford it.
 
-**Prerequisites:** the [model-based framework](/docs/04-model-based/model-based-rl-framework), [policy iteration](/docs/01-value-based/dynamic-programming), and basic policy/value approximation. We introduce the tree-search machinery below.
+<span id="a-small-tree-with-known-rules" />
 
-## The Search Problem: Where Should Computation Go?
+We begin with a single agent in a deterministic, finite episodic task. A state $s$ has a finite set of legal actions $\mathcal A(s)$. The known transition function $f$ produces the next state, $s'=f(s,a)$, and the known reward function $r(s,a)$ gives the reward on that transition. The model can be queried at hypothetical states without changing the real environment.
 
-Imagine that a policy proposes a chess move. One network evaluation can recognize a familiar position, but it might overlook a reply that loses a rook. A model lets us inspect that reply before committing to the move.
+For this first example, intermediate rewards are zero and the discount factor is $\gamma=1$. The only nonzero rewards can occur on transitions that end the episode. We record that final reward on the incoming transition and set the continuation value of a terminal state to zero. This way, every reward enters a return exactly once. Consider the following decision. From $s_0$, the agent can choose $L$ or $R$. Both transitions have reward zero. At the next state, it chooses $x$ or $y$ and receives a final reward.
 
-The difficulty is that looking ahead creates a tree. With roughly $b$ choices per position, expanding every continuation to depth $H$ requires work growing like $b^H$. A fixed computation budget cannot examine all branches equally deeply. It needs a rule for spending more effort on actions that look promising while still checking alternatives.
+<svg role="img" aria-label="A two-step decision tree. At the root choose L or R. After L, actions x and y terminate with rewards 1 and 0. After R, actions x and y terminate with rewards minus 1 and 2." viewBox="0 0 760 344" xmlns="http://www.w3.org/2000/svg" style={{display:'block',width:'100%',maxWidth:'760px',height:'auto',margin:'2rem auto'}}>
+  <defs>
+    <marker id="toy-tree-arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M1 1 L7 4 L1 7" fill="none" stroke="var(--color-fd-muted-foreground)" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+    </marker>
+  </defs>
+  <g fill="none" stroke="var(--color-fd-muted-foreground)" strokeWidth="1.5" strokeOpacity="0.65" markerEnd="url(#toy-tree-arrow)">
+    <path d="M380 72 L200 133" /><path d="M380 72 L560 133" />
+    <path d="M200 188 L110 259" /><path d="M200 188 L290 259" />
+    <path d="M560 188 L470 259" /><path d="M560 188 L650 259" />
+  </g>
+  <g fill="#3b82f6" fillOpacity="0.07" stroke="#3b82f6" strokeOpacity="0.5" strokeWidth="1.3">
+    <rect x="336" y="20" width="88" height="52" rx="14" fillOpacity="0.12" />
+    <rect x="156" y="136" width="88" height="52" rx="14" />
+    <rect x="516" y="136" width="88" height="52" rx="14" />
+  </g>
+  <g fill="var(--color-fd-background)" stroke="var(--color-fd-border)" strokeWidth="1.3">
+    <rect x="50" y="262" width="120" height="68" rx="12" />
+    <rect x="230" y="262" width="120" height="68" rx="12" />
+    <rect x="410" y="262" width="120" height="68" rx="12" />
+    <rect x="590" y="262" width="120" height="68" rx="12" />
+  </g>
+  <g fill="var(--color-fd-foreground)" fontFamily="Georgia, 'Times New Roman', serif" fontSize="27" fontStyle="italic" textAnchor="middle">
+    <text x="380" y="54">s<tspan baselineShift="sub" fontSize="16" fontStyle="normal">0</tspan></text>
+    <text x="200" y="170">s<tspan baselineShift="sub" fontSize="16">L</tspan></text>
+    <text x="560" y="170">s<tspan baselineShift="sub" fontSize="16">R</tspan></text>
+  </g>
+  <g fill="var(--color-fd-foreground)" fontFamily="Georgia, 'Times New Roman', serif" fontSize="23" fontStyle="italic" textAnchor="middle">
+    <text x="276" y="92">L</text><text x="484" y="92">R</text>
+    <text x="137" y="218">x</text><text x="263" y="218">y</text>
+    <text x="497" y="218">x</text><text x="623" y="218">y</text>
+  </g>
+  <g fill="var(--color-fd-muted-foreground)" fontFamily="inherit" fontSize="12" textAnchor="middle">
+    <text x="110" y="283">terminal payoff</text><text x="290" y="283">terminal payoff</text>
+    <text x="470" y="283">terminal payoff</text><text x="650" y="283">terminal payoff</text>
+  </g>
+  <g fill="var(--color-fd-foreground)" fontFamily="inherit" fontSize="26" fontWeight="600" textAnchor="middle">
+    <text x="110" y="314">+1</text><text x="290" y="314">0</text>
+    <text x="470" y="314">−1</text><text x="650" y="314">+2</text>
+  </g>
+</svg>
 
-**Monte Carlo tree search (MCTS)** builds this tree incrementally through simulations. A simulation is a computation through the model, not a new interaction with the real environment. At an edge $(s,a)$, keep a visit count $N(s,a)$ and a mean backed-up return $Q(s,a)$. These are temporary statistics for the current search, distinct from a learned $Q$-network whose parameters persist across decisions.
+The **root** represents the current state. An **edge** represents an action and its modeled transition. A **child** represents the resulting state. A terminal node marks the end of the task. More generally, a node identifies a particular continuation from the root. Two different action sequences can reach the same environment state while remaining separate nodes in a tree.
 
-Each simulation repeats four operations:
-
-1. **Select:** follow already expanded edges using a rule that balances estimated value and further investigation.
-2. **Expand:** generate a previously unexpanded successor using the model.
-3. **Evaluate:** estimate the leaf's remaining return, or read an exact outcome if it is terminal.
-4. **Back up:** propagate the return through the visited path and update its counts and averages.
-
-Early MCTS commonly evaluated leaves by playing a rollout to termination under a simple policy. That is one evaluation mechanism, not the definition of MCTS. A heuristic or learned value can provide the leaf estimate instead.
-
-The UCT algorithm of Kocsis and Szepesvári (2006) applies the bandit idea of an exploration bonus at tree nodes. A representative selection rule is
+What should the agent do at $s_0$? We already know how to answer this with the Bellman equations. To compare an action with its alternatives, combine its immediate reward with the best continuation value:
 
 $$
-a^* = \arg\max_a
+\begin{aligned}
+Q^*(s,a)&=r(s,a)+V^*(f(s,a)),\\
+V^*(s)&=\max_{a\in\mathcal A(s)}Q^*(s,a).
+\end{aligned}
+$$
+
+The discount is absent because we set it to one. At a terminal state, $V^*=0$. At the two states immediately above the terminal nodes, the action values are therefore just the final rewards:
+
+$$
+\begin{aligned}
+V^*(s_L)&=\max\{1,0\}=1,\\
+V^*(s_R)&=\max\{-1,2\}=2.
+\end{aligned}
+$$
+
+Now move one level backward. The first transitions have reward zero, so
+
+$$
+Q^*(s_0,L)=0+V^*(s_L)=1,
+\qquad
+Q^*(s_0,R)=0+V^*(s_R)=2.
+$$
+
+The best first action is $R$. This answer assumes that the agent also makes the best subsequent choice, $y$. Nothing has happened in the real environment during these calculations. The agent has queried its model, compared hypothetical continuations, and produced one action. Only now does it execute $R$. After observing the resulting state, it can plan again.
+
+<span id="what-changes-with-stochastic-transitions" />
+
+**What changes with stochastic transitions?** So far, we have assumed that taking an action in a given state always produces the same next state. In a stochastic environment, the same action can have several possible outcomes. For example, a command to move right may succeed or leave the agent in place if the surface is slippery. An action sequence therefore no longer determines a single path through the environment. To evaluate it, we must account for the possible outcomes and the decisions that follow each one, rather than examine just one continuation. Tree search remains possible, but handling this additional uncertainty makes planning more involved. A practical simplification is to ignore the transition noise and plan as though the dynamics were deterministic. When the noise is small and has little effect on which actions are preferable, this approximation can still produce useful decisions, although they may be suboptimal in the actual environment. We will use deterministic dynamics throughout the worked examples in this chapter so that we can develop the search mechanisms without also tracking random transition outcomes.
+
+## A First Approximation: Monte Carlo Rollouts
+
+<span id="why-not-expand-the-whole-tree" />
+
+What if we are playing a more complex game, with far more than four possible continuations? Suppose the agent has $b$ actions to choose from at each step and we want to look ahead for $H$ steps. A full tree then has $b^H$ leaves. Even $b=10$ and $H=6$ give one million action sequences. Now imagine how many sequences we would need to examine to look ahead through an entire game of chess. We need to save computation in two ways: stop expanding at a manageable depth and estimate the remaining return, and spend more effort on some branches than on others. We begin by limiting the depth of explicit search and estimating what remains.
+
+A simple method expands the tree to a chosen depth $d$. At each frontier state, it stops branching and runs a **rollout policy** $\pi_0$. This policy chooses actions until the episode ends. It could be uniformly random over legal actions or use a cheap heuristic. Let a rollout start at an unfinished state $s$. Write $G^{(i)}(s)$ for the sum of rewards in its $i$th sampled continuation. Under our undiscounted convention, this is the final payoff in the toy task. To reduce the variability of one sample, average $m$ rollouts:
+
+$$
+\widehat V^{\pi_0}_m(s)
+=\frac{1}{m}\sum_{i=1}^{m}G^{(i)}(s).
+$$
+
+The data here comes entirely from model simulations. Increasing $m$ supplies more samples of what $\pi_0$ does in that model. It does not collect additional transitions from the real environment.
+
+<span id="which-value-are-we-estimating" />
+
+For example, stop expanding our tree at $s_L$ and $s_R$, and let $\pi_0$ choose $x$ and $y$ with equal probability. Suppose three rollouts from $s_L$ return $1,0,1$, while three from $s_R$ return $-1,2,2$. Averaging gives
+
+$$
+\widehat V^{\pi_0}_3(s_L)=\frac{1+0+1}{3}=\frac23,
+\qquad
+\widehat V^{\pi_0}_3(s_R)=\frac{-1+2+2}{3}=1.
+$$
+
+These samples favor $R$, but another sample could favor $L$. More rollouts reduce this sampling error, yet they still evaluate the same policy $\pi_0$. In fact, its expected return is $0.5$ from either state, whereas the optimal values are $1$ and $2$. Accurate rollout estimates therefore do not necessarily reveal the best continuation.
+
+<span id="combining-an-explicit-prefix-with-rollouts" />
+
+In a larger task, we can expand two decision steps and run rollouts from the four unfinished frontier states, as shown below. Solid branches represent explicit action comparisons. Each dashed path represents one sampled continuation under $\pi_0$, with no further branching. We repeat these continuations to estimate each frontier value.
+
+<svg role="img" aria-label="A search tree expanded for two decision steps. State s0 branches through actions a0 and a1 to s1 and s2, then through actions a2 to a5 to four unfinished frontier states s3 to s6. Dashed paths below the frontier represent sampled rollouts under policy pi0 to the end of the episode." viewBox="0 0 760 430" xmlns="http://www.w3.org/2000/svg" style={{display:'block',width:'100%',maxWidth:'760px',height:'auto',margin:'1.5rem auto'}}>
+  <defs>
+    <marker id="rollout-tree-arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M1 1 L7 4 L1 7" fill="none" stroke="var(--color-fd-muted-foreground)" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+    </marker>
+  </defs>
+  <g fill="none" stroke="var(--color-fd-muted-foreground)" strokeWidth="1.5" strokeOpacity="0.7" markerEnd="url(#rollout-tree-arrow)">
+    <path d="M380 68 L200 131" /><path d="M380 68 L560 131" />
+    <path d="M200 177 L110 240" /><path d="M200 177 L290 240" />
+    <path d="M560 177 L470 240" /><path d="M560 177 L650 240" />
+  </g>
+  <g fill="#3b82f6" fillOpacity="0.08" stroke="#3b82f6" strokeOpacity="0.5" strokeWidth="1.3">
+    <rect x="348" y="24" width="64" height="44" rx="12" />
+    <rect x="168" y="134" width="64" height="43" rx="12" />
+    <rect x="528" y="134" width="64" height="43" rx="12" />
+    <rect x="78" y="243" width="64" height="43" rx="12" />
+    <rect x="258" y="243" width="64" height="43" rx="12" />
+    <rect x="438" y="243" width="64" height="43" rx="12" />
+    <rect x="618" y="243" width="64" height="43" rx="12" />
+  </g>
+  <g fill="var(--color-fd-background)">
+    <rect x="269" y="85" width="42" height="28" rx="8" />
+    <rect x="449" y="85" width="42" height="28" rx="8" />
+    <rect x="134" y="195" width="42" height="28" rx="8" />
+    <rect x="224" y="195" width="42" height="28" rx="8" />
+    <rect x="494" y="195" width="42" height="28" rx="8" />
+    <rect x="584" y="195" width="42" height="28" rx="8" />
+  </g>
+  <g fill="#f59e0b" fillOpacity="0.13" stroke="#d97706" strokeOpacity="0.45">
+    <rect x="269" y="85" width="42" height="28" rx="8" />
+    <rect x="449" y="85" width="42" height="28" rx="8" />
+    <rect x="134" y="195" width="42" height="28" rx="8" />
+    <rect x="224" y="195" width="42" height="28" rx="8" />
+    <rect x="494" y="195" width="42" height="28" rx="8" />
+    <rect x="584" y="195" width="42" height="28" rx="8" />
+  </g>
+  <g fill="var(--color-fd-foreground)" fontFamily="Georgia, 'Times New Roman', serif" fontSize="25" fontStyle="italic" textAnchor="middle">
+    <text x="380" y="53">s<tspan baselineShift="sub" fontSize="14" fontStyle="normal">0</tspan></text>
+    <text x="200" y="162">s<tspan baselineShift="sub" fontSize="14" fontStyle="normal">1</tspan></text>
+    <text x="560" y="162">s<tspan baselineShift="sub" fontSize="14" fontStyle="normal">2</tspan></text>
+    <text x="110" y="271">s<tspan baselineShift="sub" fontSize="14" fontStyle="normal">3</tspan></text>
+    <text x="290" y="271">s<tspan baselineShift="sub" fontSize="14" fontStyle="normal">4</tspan></text>
+    <text x="470" y="271">s<tspan baselineShift="sub" fontSize="14" fontStyle="normal">5</tspan></text>
+    <text x="650" y="271">s<tspan baselineShift="sub" fontSize="14" fontStyle="normal">6</tspan></text>
+  </g>
+  <g fill="var(--color-fd-foreground)" fontFamily="Georgia, 'Times New Roman', serif" fontSize="20" fontStyle="italic" textAnchor="middle">
+    <text x="290" y="105">a<tspan baselineShift="sub" fontSize="12" fontStyle="normal">0</tspan></text>
+    <text x="470" y="105">a<tspan baselineShift="sub" fontSize="12" fontStyle="normal">1</tspan></text>
+    <text x="155" y="215">a<tspan baselineShift="sub" fontSize="12" fontStyle="normal">2</tspan></text>
+    <text x="245" y="215">a<tspan baselineShift="sub" fontSize="12" fontStyle="normal">3</tspan></text>
+    <text x="515" y="215">a<tspan baselineShift="sub" fontSize="12" fontStyle="normal">4</tspan></text>
+    <text x="605" y="215">a<tspan baselineShift="sub" fontSize="12" fontStyle="normal">5</tspan></text>
+  </g>
+  <path d="M40 302 H720" stroke="var(--color-fd-border)" strokeDasharray="5 6" />
+  <g fill="none" stroke="var(--color-fd-muted-foreground)" strokeWidth="1.7" strokeDasharray="4 4" strokeLinecap="round" markerEnd="url(#rollout-tree-arrow)">
+    <path d="M110 287 C85 310 135 325 110 345 S135 375 110 393" />
+    <path d="M290 287 C265 310 315 325 290 345 S315 375 290 393" />
+    <path d="M470 287 C445 310 495 325 470 345 S495 375 470 393" />
+    <path d="M650 287 C625 310 675 325 650 345 S675 375 650 393" />
+  </g>
+  <g fill="var(--color-fd-muted-foreground)" fontFamily="inherit" fontSize="14">
+    <text x="30" y="42">Explicit search</text>
+    <text x="30" y="62">depth d = 2</text>
+    <text x="380" y="420" textAnchor="middle">Sampled rollouts under π₀ to episode end</text>
+  </g>
+</svg>
+
+How do the rollout results help us choose an action at the root? Suppose the average returns from the four frontier states in the diagram give the following estimates, written as $\widehat V(s)$:
+
+$$
+\begin{aligned}
+\widehat V(s_3)&=0.2, &\widehat V(s_4)&=0.8,\\
+\widehat V(s_5)&=0.4, &\widehat V(s_6)&=0.6.
+\end{aligned}
+$$
+
+These are illustrative rollout estimates for the larger tree. Keep the rewards on its explicit edges at zero and $\gamma=1$. We can now work backward, choosing the better action at each state:
+
+1. At $s_1$, action $a_2$ leads to $s_3$, whose estimate is $0.2$, while $a_3$ leads to $s_4$, whose estimate is $0.8$. Choosing $a_3$ gives the backed-up estimate $\widehat V(s_1)=\max\{0.2,0.8\}=0.8$.
+2. At $s_2$, we compare $0.4$ from $s_5$ with $0.6$ from $s_6$. Choosing $a_5$ gives $\widehat V(s_2)=\max\{0.4,0.6\}=0.6$.
+3. At the root $s_0$, action $a_0$ leads to the branch estimated at $0.8$, while $a_1$ leads to the branch estimated at $0.6$. We therefore choose $a_0$ as the action to execute.
+
+We **average sampled returns during rollouts** to estimate each frontier state's value, then **choose the best action in the explicit tree** to carry those estimates back to the root. This is how the two parts of the diagram work together.
+
+So far, we have expanded every branch to the same depth and given every frontier the same number of rollouts. Some branches may already look unpromising, yet they receive as much computation as those that could determine the root action. Can the next simulation be allocated more intelligently?
+
+## From Uniform Search to UCT
+
+Which branch should receive the next simulation? Choosing the action with the highest current estimate can miss a better continuation. In our example, one rollout after $L$ may return $1$, while one after $R$ returns $-1$. A greedy search can then keep choosing $L$ without discovering the payoff $2$ available after $R$. This is the same exploration–exploitation problem we encountered in [multi-armed bandits](/docs/01-value-based/multi-armed-bandits#ucb-optimism-under-uncertainty). UCB balances the observed mean against an exploration bonus. **UCT**, or **UCB applied to Trees**, uses this idea at each decision node: outgoing actions play the role of arms, and simulated returns supply their samples.
+
+<span id="keep-search-statistics-on-edges" />
+
+For each tree edge $(s,a)$, let $N(s,a)$ count the simulations that traversed it. Store their accumulated return $W(s,a)$ and, once the count is positive, their mean:
+
+$$
+W(s,a)=\sum_{i=1}^{N(s,a)}G^{(i)}_{s,a},
+\qquad
+Q(s,a)=\frac{W(s,a)}{N(s,a)}.
+$$
+
+Here $G^{(i)}_{s,a}$ is the return from the beginning of that edge in its $i$th simulation. In our current example, it is the terminal payoff. These quantities are temporary statistics of the search tree, distinct from a learned $Q$-network.
+
+<span id="value-plus-an-exploration-bonus" />
+
+To select the next branch, define $N(s)$ as the total number of departures through the node's explicit outgoing edges. Once every available action has been tried, use
+
+$$
+\begin{aligned}
+N(s)&=\sum_{b\in\mathcal A(s)}N(s,b),\\
+U_{\mathrm{UCT}}(s,a)
+&=c\sqrt{\frac{\log N(s)}{N(s,a)}},\\
+a_{\mathrm{select}}
+&=\arg\max_{a\in\mathcal A(s)}
+\left[Q(s,a)+U_{\mathrm{UCT}}(s,a)\right].
+\end{aligned}
+$$
+
+The mean favors actions with good simulated returns. The bonus favors less-visited actions: it shrinks as an action receives samples and grows if the node keeps being searched while that action is neglected. The coefficient $c\gt0$ controls this balance relative to the scale of returns. At initialization, set $N=W=0$ on each edge and **select an unvisited action before applying the formula**, breaking ties in a fixed order. An edge's first sample defines its mean.
+
+UCT allocates computation inside the model. The real action is chosen after search finishes. Unlike a stationary bandit, an edge's return distribution can change as search changes the decisions below it, so the bandit analogy motivates the rule without directly supplying a confidence guarantee. [Kocsis and Szepesvári, UCT](https://doi.org/10.1007/11871842_29)
+
+## Monte Carlo Tree Search
+
+We can now remove the uniformly expanded prefix. Start with the current state as the only node, and let UCT determine which parts of the tree deserve to grow. Each simulation follows an existing path, adds a child node when needed, evaluates the frontier, and updates the visited path. This incremental procedure is **Monte Carlo tree search**, or MCTS. UCT is the selection rule used in the version we develop first.
+
+### One Simulation, Four Operations
+
+The four operations have different jobs:
+
+1. **Selection.** Starting at the root, choose actions through the existing tree. Use the unvisited-action rule when applicable and UCT otherwise.
+2. **Expansion.** If the selected action has no child node in the tree yet, use the model to obtain the next state and add a node for it. Our basic implementation adds at most one new node per simulation.
+3. **Evaluation.** If the resulting state is unfinished, estimate its remaining return with a rollout under $\pi_0$. If it is terminal, its continuation value is zero. The reward for reaching it is already on the incoming edge.
+4. **Backpropagation (backup).** Move backward through the selected edges, form their returns, and update their counts and means.
+
+The diagram follows one simulation through a schematic tree. Blue marks the selected path, orange marks the new child node, and the dashed curve is a rollout beyond the explicit tree.
+
+<figure style={{margin:'1.5rem 0'}}>
+  <div style={{overflowX:'auto'}}>
+    <svg role="img" aria-labelledby="mcts-iteration-title mcts-iteration-description" viewBox="0 0 880 430" xmlns="http://www.w3.org/2000/svg" style={{display:'block',width:'100%',minWidth:'680px',height:'auto'}}>
+      <title id="mcts-iteration-title">One simulation of rollout-based Monte Carlo tree search</title>
+      <desc id="mcts-iteration-description">Four views of the same tree. Selection follows existing edges downward with UCT. Expansion adds one child node. Evaluation samples a rollout from that node without adding the rollout states to the tree. Backpropagation moves upward along the selected edges, updating N, W, and Q. Repeat these operations until the simulation budget is exhausted.</desc>
+      <defs>
+        <marker id="mcts-iteration-arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+          <path d="M1 1 L7 4 L1 7" fill="none" stroke="var(--color-fd-muted-foreground)" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+        </marker>
+        <marker id="mcts-iteration-blue-arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+          <path d="M1 1 L7 4 L1 7" fill="none" stroke="#3b82f6" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+        </marker>
+        <marker id="mcts-iteration-rollout-arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="4" markerHeight="4" orient="auto-start-reverse">
+          <path d="M1 1 L7 4 L1 7" fill="none" stroke="var(--color-fd-muted-foreground)" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+        </marker>
+        <g id="mcts-iteration-tree">
+          <path d="M110 112 L60 170 L35 228 M60 170 L85 228 M110 112 L160 170 L135 228 M160 170 L185 228" fill="none" stroke="var(--color-fd-muted-foreground)" strokeOpacity="0.35" strokeWidth="1.6" />
+          <g fill="var(--color-fd-background)" stroke="var(--color-fd-muted-foreground)" strokeOpacity="0.45" strokeWidth="1.7">
+            <circle cx="110" cy="112" r="9" />
+            <circle cx="60" cy="170" r="9" /><circle cx="160" cy="170" r="9" />
+            <circle cx="35" cy="228" r="9" /><circle cx="85" cy="228" r="9" />
+            <circle cx="135" cy="228" r="9" /><circle cx="185" cy="228" r="9" />
+          </g>
+        </g>
+        <g id="mcts-iteration-selected-nodes" fill="var(--color-fd-background)" stroke="#3b82f6" strokeWidth="2.2">
+          <circle cx="110" cy="112" r="9" /><circle cx="60" cy="170" r="9" /><circle cx="85" cy="228" r="9" />
+        </g>
+        <g id="mcts-iteration-selected-path">
+          <path d="M104 120 L66 161 M64 179 L81 218" fill="none" stroke="#3b82f6" strokeWidth="2.2" markerEnd="url(#mcts-iteration-blue-arrow)" />
+          <use href="#mcts-iteration-selected-nodes" />
+        </g>
+        <g id="mcts-iteration-new-successor">
+          <path d="M82 237 L73 269" fill="none" stroke="#d97706" strokeWidth="2.2" />
+          <circle cx="70" cy="280" r="10" fill="var(--color-fd-background)" stroke="#d97706" strokeWidth="2.5" />
+          <circle cx="70" cy="280" r="6" fill="#f59e0b" fillOpacity="0.2" />
+        </g>
+      </defs>
+      <g fill="none" stroke="var(--color-fd-muted-foreground)" strokeWidth="1.4" markerEnd="url(#mcts-iteration-arrow)">
+        <path d="M858 40 V16 H22 V40" />
+        <path d="M208 58 H232" /><path d="M428 58 H452" /><path d="M648 58 H672" />
+      </g>
+      <rect x="314" y="3" width="252" height="26" fill="var(--color-fd-background)" />
+      <text x="440" y="21" fill="var(--color-fd-muted-foreground)" fontFamily="inherit" fontSize="15" textAnchor="middle">Repeat for the search budget</text>
+      <g fill="var(--color-fd-card)" stroke="var(--color-fd-border)">
+        <rect x="12" y="40" width="196" height="36" rx="8" />
+        <rect x="232" y="40" width="196" height="36" rx="8" />
+        <rect x="452" y="40" width="196" height="36" rx="8" />
+        <rect x="672" y="40" width="196" height="36" rx="8" />
+      </g>
+      <g fill="var(--color-fd-foreground)" fontFamily="inherit" fontSize="20" fontWeight="600" textAnchor="middle">
+        <text x="110" y="64">1. Selection</text><text x="330" y="64">2. Expansion</text>
+        <text x="550" y="64">3. Evaluation</text><text x="770" y="64">4. Backpropagation</text>
+      </g>
+      <g>
+        <use href="#mcts-iteration-tree" /><use href="#mcts-iteration-selected-path" />
+      </g>
+      <g transform="translate(220 0)">
+        <use href="#mcts-iteration-tree" /><use href="#mcts-iteration-selected-path" />
+        <use href="#mcts-iteration-new-successor" />
+      </g>
+      <g transform="translate(440 0)">
+        <use href="#mcts-iteration-tree" /><use href="#mcts-iteration-selected-path" />
+        <use href="#mcts-iteration-new-successor" />
+        <path d="M70 292 C87 303 53 315 70 328" fill="none" stroke="var(--color-fd-muted-foreground)" strokeWidth="1.5" strokeDasharray="3 4" strokeLinecap="round" markerEnd="url(#mcts-iteration-rollout-arrow)" />
+        <rect x="64" y="332" width="12" height="12" rx="2" fill="var(--color-fd-background)" stroke="var(--color-fd-muted-foreground)" strokeWidth="1.5" />
+      </g>
+      <g transform="translate(660 0)">
+        <use href="#mcts-iteration-tree" /><use href="#mcts-iteration-new-successor" />
+        <g fill="none" stroke="#3b82f6" strokeWidth="2.2" markerEnd="url(#mcts-iteration-blue-arrow)">
+          <path d="M73 269 L82 239" /><path d="M81 218 L64 181" /><path d="M66 161 L104 122" />
+        </g>
+        <use href="#mcts-iteration-selected-nodes" />
+      </g>
+      <g fill="var(--color-fd-muted-foreground)" fontFamily="inherit" fontSize="15" textAnchor="middle">
+        <text x="110" y="399">Follow tree edges</text><text x="110" y="419">with UCT</text>
+        <text x="330" y="399">Add one child node</text><text x="330" y="419">with the model</text>
+        <text x="550" y="399">Roll out with π₀</text><text x="550" y="419">to estimate the return</text>
+        <text x="770" y="399">Update N, W, Q</text><text x="770" y="419">along the visited path</text>
+      </g>
+    </svg>
+  </div>
+</figure>
+
+After expansion, the orange node has been added to the search tree, but we still need to estimate how good that position is. Starting there, we use the model to play out the rest of the episode under the rollout policy $\pi_0$. We use the resulting return to evaluate the orange node, without adding the later rollout positions to the tree or recording separate visit counts for their actions. We then work backward from the orange node to the root, updating the statistics of the tree edges along that path. Thus, one simulation can play many additional moves while adding only one node to the stored search tree.
+
+<span id="what-is-backed-up" />
+<span id="nine-simulations-on-the-same-tree" />
+
+### Updating the Tree
+
+The evaluation step is complete. How do we use its result to update the tree? Let $G$ be the total reward obtained in this simulation. With zero intermediate rewards and $\gamma=1$, this is just the final reward, and it is the same return from every edge traversed in the explicit tree. Each of those edges receives $G$ as one new sample. For an edge $(s,a)$, update its statistics as follows:
+
+$$
+\begin{aligned}
+N_{\mathrm{new}}(s,a)&=N(s,a)+1,\\
+W_{\mathrm{new}}(s,a)&=W(s,a)+G,\\
+Q_{\mathrm{new}}(s,a)&=\frac{W_{\mathrm{new}}(s,a)}{N_{\mathrm{new}}(s,a)}.
+\end{aligned}
+$$
+
+The subscript “new” denotes the statistics after this update. We add one visit, add the current simulation's return to the accumulated total, and recompute the mean. On an edge's first visit, its count becomes one and its mean is simply $G$. Later simulations refine that mean by contributing additional returns.
+
+The updated means and counts change the UCT scores, so the next simulation can follow a different path and expand another part of the tree. This feedback makes the tree grow selectively. Unlike the earlier fixed-depth search, this version of MCTS accumulates mean simulated returns, while UCT controls which continuations contribute to those means.
+
+<span id="choosing-the-real-action" />
+
+### From Search to Action
+
+Once the simulation budget is exhausted, the agent must choose an action to execute in the environment. A natural choice is to compare the expected total returns estimated during search and select the action with the highest estimate. This is the rule used in the original UCT algorithm. At the current root $s_0$, we choose among the actions explored during search:
+
+$$
+\begin{aligned}
+a_{\mathrm{real}}
+&=\arg\max_{a:\,N(s_0,a)\gt0}Q(s_0,a),\\
+Q(s_0,a)&=\frac{W(s_0,a)}{N(s_0,a)}.
+\end{aligned}
+$$
+
+However, $Q$ is only an estimate based on a finite number of simulations. An action explored just a few times may have a high average because its sampled continuations happened to be favorable. Some MCTS systems instead choose the most-visited action at the root, using the search's allocation of simulations to determine the final move. AlphaZero, for example, uses this rule when evaluating its agent. Here $N(s_0,a)$ counts how many times action $a$ was selected at the root during search:
+
+$$
+a_{\mathrm{real}}
+=\arg\max_{a\in\mathcal A(s_0)}N(s_0,a).
+$$
+
+<span id="a-backup-must-know-whose-value-it-carries" />
+
+<span id="two-player-games-and-minimax" />
+<span id="the-opponent-chooses-too" />
+<span id="keep-the-exploration-bonus-positive" />
+<span id="moving-to-the-player-to-move-convention" />
+
+### Searching against an Opponent
+
+Can we use the same search procedure to play chess? The rules tell us exactly what follows any legal move, but they do not tell us which reply the opponent will choose. Instead of modeling a particular opponent's reasoning, we search over both players' moves, treating each player as trying to maximize their own return. In a zero-sum game, this means minimizing the other player's return: a move must be judged against the opponent's strongest reply. This is the idea behind **minimax**. We can apply MCTS at both players' decision nodes, with each side seeking a favorable outcome.
+
+We use a second agent to choose the opponent's moves. The first agent maximizes the game outcome $Z_1$ ($+1$ for a win, $0$ for a draw, $-1$ for a loss), while the second minimizes it. The sign $o(s)$ converts this result to the perspective of the player whose turn it is:
+
+$$
+\begin{aligned}
+o(s)&=
+\begin{cases}
++1,&\text{first player's turn},\\
+-1,&\text{second player's turn},
+\end{cases}\\
+G(s,a)&=o(s)Z_1.
+\end{aligned}
+$$
+
+Under our assumptions of zero intermediate rewards and no discounting, $G(s,a)$ is the sample added to edge $(s,a)$. Its mean $Q(s,a)$ therefore measures the outcome **for the player choosing that action**. Both players can maximize their own $Q$: an action that looks good for the opponent can look bad for us. During search, each player also receives a positive exploration bonus:
+
+$$
+a_{\mathrm{select}}
+=\arg\max_a
 \left[
-Q(s,a) + c\sqrt{\frac{\log N(s)}{N(s,a)}}
-\right],
-\qquad N(s)=\sum_b N(s,b).
-$$
-
-This expression applies once the relevant counts are positive. Unvisited actions need an explicit initialization rule. The first term favors good observed returns. The second gives less-visited actions another chance. Search exploration allocates simulated computation. It is separate from exploration through real actions. [Kocsis and Szepesvári, *Bandit Based Monte-Carlo Planning*](https://doi.org/10.1007/11871842_29)
-
-This answers where to search, but it leaves two expensive questions: which moves deserve an initial preference, and how should an unfinished position be valued?
-
-## AlphaGo: Learn Which Moves and Positions Matter
-
-AlphaGo (2016) used neural networks to answer both questions. A policy network predicted promising moves, initially from human expert games and then with reinforcement learning from self-play. A value network learned to predict game outcomes from self-play positions. Search combined learned move preferences with leaf evaluations that mixed the value network and a fast rollout policy. The game simulator still supplied exact transitions and outcomes. [Silver et al., AlphaGo](https://doi.org/10.1038/nature16961)
-
-The two learned predictions reduce different burdens. A policy prior directs computation toward plausible branches. A value estimate lets search stop before the end of a game. Neither changes the rules used to generate the next board.
-
-This was a successful combination, but its training pipeline still depended on human examples and several separately trained components. The next question was whether search itself could supply the policy supervision.
-
-## AlphaGo Zero: Search Becomes the Teacher
-
-AlphaGo Zero (2017) removed human-game supervision and used one network with policy and value outputs:
-
-$$
-(p_\theta(s),V_\theta(s))=f_\theta(s).
-$$
-
-At an expanded leaf, the policy output supplies priors for its outgoing moves and the value output supplies the evaluation. Separate rollout-to-terminal evaluation is no longer needed. Self-play begins with a randomly initialized network, while legal moves, transitions, and scoring still come from the known rules. [Silver et al., AlphaGo Zero](https://doi.org/10.1038/nature24270)
-
-### From a Prior to a Search Distribution
-
-A simplified PUCT rule includes the learned prior $P(s,a)=p_\theta(a\mid s)$:
-
-$$
-a^*=\arg\max_a
-\left[
-Q(s,a)+c\,P(s,a)
-\frac{\sqrt{\sum_b N(s,b)}}{1+N(s,a)}
+Q(s,a)+c\sqrt{\frac{\log N(s)}{N(s,a)}}
 \right].
 $$
 
-A highly recommended move receives attention early. Its backed-up results then affect later selections. This is a useful schematic, not complete reproduction code: initialization, root exploration noise, and the exploration coefficient also matter.
-
-After a budget of simulations, root visit counts give a search distribution
+As before, unvisited actions are selected before applying this formula. Only the value term reflects the players' opposing objectives. The exploration bonus stays positive because either player may benefit from investigating a less-visited action. After search, the value-based final-action rule also uses the acting player's perspective:
 
 $$
-\pi_{\mathrm{search}}(a\mid s)=
-\frac{N(s,a)^{1/\tau}}
-{\sum_b N(s,b)^{1/\tau}},
-\qquad \tau\gt0.
+a_{\mathrm{real}}
+=\arg\max_{a:\,N(s_0,a)\gt0}Q(s_0,a).
 $$
 
-At temperature $\tau=1$, counts of $30$ and $10$ produce probabilities $0.75$ and $0.25$. As temperature approaches zero, the distribution concentrates on the most-visited actions. Exploration during self-play and action choice during evaluation can use different settings.
+With this player-relative return, the rest of MCTS works as before. The whole algorithm works without a single neural network, which feels almost suspicious in a modern RL chapter. Let's fix that. Following our experience in the model-free chapters, we can represent the policy and value functions with neural networks. AlphaZero combines both in one network and trains it using search results and outcomes from self-play.
 
-Three objects now coexist. The prior $p_\theta$ is the network's prediction before search. The values $Q$ summarize simulated returns during search. The distribution $\pi_{\mathrm{search}}$ summarizes how the search allocated visits and becomes a policy target. None is interchangeable with the other two.
+<span id="alphazero-generalize-the-loop-beyond-go" />
+<span id="from-search-to-learned-policies-and-values" />
+<span id="alphago-zero-search-becomes-the-teacher" />
 
-### Train on the Search and the Outcome
+## AlphaZero: Neural Search and Self-Play
 
-For each self-play position, store the state $s$, the search distribution $\pi_{\mathrm{search}}$, and the final outcome $Z$ from that position's player's perspective. A schematic training loss is
+Search compares moves at one position. How can we preserve that work for other positions? AlphaZero learns a policy that imitates search preferences and a value function that predicts game outcomes. We first use these predictions inside MCTS, then explain how to train them.
 
-$$
-L(\theta)=
-\big(V_\theta(s)-Z\big)^2
--\sum_a\pi_{\mathrm{search}}(a\mid s)\log p_\theta(a\mid s)
-+\lambda_{\mathrm{reg}}\|\theta\|_2^2.
-$$
+<span id="policy-and-value-predictions" />
 
-The policy learns to reproduce the search's preferences. The value learns the eventual result of playing. The updated network then guides future searches. This is the search-based policy-iteration loop developed in AlphaGo Zero and retained in AlphaZero. [AlphaGo Zero](https://doi.org/10.1038/nature24270); [AlphaZero](https://arxiv.org/abs/1712.01815)
+### MCTS with Neural Guidance
 
-Search can find a useful continuation at one position. Fitting the network can generalize that lesson to other positions. This explains how decision-time planning and behavior learning help each other. It also distinguishes this loop from [Dyna-style learning](/docs/04-model-based/dyna-and-learned-models): the policy here receives a distribution produced by search, rather than simply training on a buffer of synthetic transitions.
-
-Finite search with approximate leaf values does not automatically improve every decision. Fitting its targets approximately does not provide the exact improvement guarantee of tabular policy iteration either. The loop is a learning procedure whose benefit must be measured.
-
-## AlphaZero: Generalize the Loop beyond Go
-
-AlphaZero appeared as a preprint in 2017 and in *Science* in 2018. It adapted this self-play procedure to chess, shogi, and Go. Expected-outcome targets allow draws, and the algorithm drops Go-specific symmetry augmentation. It also continually updates the network used for self-play, unlike AlphaGo Zero's procedure that evaluated a candidate against the current best network before replacing it. These are meaningful algorithmic differences, not just new game names. [Silver et al., AlphaZero](https://arxiv.org/abs/1712.01815)
-
-The common algorithm was trained separately for each game. It still received game-specific state/action encodings and exact rules for legal moves, successor positions, and outcomes. Its generality concerns the learning and search procedure. It does not mean one checkpoint mastered every game or that the dynamics were learned. [Silver et al., *Science*](https://doi.org/10.1126/science.aar6404)
-
-To keep that separation visible:
-
-| Component | Role in AlphaZero |
-|---|---|
-| Environment model | Known rules generate hypothetical continuations |
-| Search algorithm | MCTS allocates simulations and constructs action preferences |
-| Learning algorithm | Fit policy/value predictions to search targets and self-play outcomes |
-| Executed controller | Observe the position, search, play a move, and repeat |
-
-Learning better guidance can make search much stronger. It cannot remove the need for a transition model, because every expansion still asks what follows an action.
-
-## A Backup Must Know Whose Value It Carries
-
-Before replacing the exact model, check the tree's bookkeeping. In a single-agent task, the return passed through an edge is
+One network with parameters $\theta$ has two output heads:
 
 $$
-G_{\mathrm{parent}}=r+\gamma G_{\mathrm{child}}.
+\big(p_\theta(s),V_\theta(s)\big)=f_\theta(s).
 $$
 
-At an evaluated leaf, initialize $G_{\mathrm{child}}$ from its value estimate. At a true terminal state there is no continuation value. If the terminal reward is carried by the incoming edge, do not also count it as a leaf outcome.
+The policy $p_\theta(a\mid s)$ predicts move probabilities. The value $V_\theta(s)$ predicts the expected outcome for the player to move. Known rules still supply legal moves, transitions, and terminal outcomes.
 
-For a two-player zero-sum game, suppose each node's value is a signed expected outcome in $[-1,1]$ for the player to move. When the player changes along an edge, the convention becomes
+<span id="replace-the-rollout-with-a-value-prediction" />
 
-$$
-G_{\mathrm{parent}}
-=r_{\mathrm{parent}}-\gamma G_{\mathrm{child}}.
-$$
+At an unfinished leaf $s_{\mathrm{leaf}}$, evaluate $V_\theta(s_{\mathrm{leaf}})$ instead of playing a rollout. Convert this estimate to each acting player's perspective when updating $N,W,Q$. For example, a leaf estimate $+0.6$ becomes $-0.6$ for the opposing player. At a terminal leaf, use the known outcome once, on its incoming transition, with zero continuation afterward.
 
-The immediate reward is expressed for the parent player. A same-player continuation keeps the plus sign. An implementation that stores everything in one fixed player's perspective uses different selection and backup bookkeeping. The conventions must not be mixed.
+<span id="a-policy-prior-for-selecting-branches" />
+<span id="guiding-search-with-puct" />
 
-For example, let $\gamma=1$ and intermediate rewards be zero. At a leaf where player A moves, the value is $+0.6$ for A. Its parent, where B moves, receives $-0.6$. The root, where A moves, receives $+0.6$ again. Both players maximize values in their own perspective, so B does not cooperate in choosing A's best outcome.
-
-Once converted to the edge's perspective, the sample updates its running average:
+For selection, normalize the policy over legal moves and store it as the prior $P(s,a)$. A simplified **PUCT** rule is
 
 $$
-N_{\mathrm{new}}=N+1,
-\qquad
-Q_{\mathrm{new}}=\frac{NQ+G}{N+1}.
+\begin{aligned}
+U_{\mathrm{PUCT}}(s,a)
+&=c_{\mathrm{puct}}P(s,a)
+\frac{\sqrt{N(s)}}{1+N(s,a)},\\
+a_{\mathrm{select}}
+&=\arg\max_{a\in\mathcal A(s)}
+\Big[Q(s,a)\\
+&\qquad\qquad+U_{\mathrm{PUCT}}(s,a)\Big].
+\end{aligned}
 $$
 
-If $N=2$, $Q=0.3$, and the new return is $G=0.9$, the new mean is $0.5$. This average is an estimate from the trajectories selected by the search, not a proof of an action's minimax value.
+Here $N(s)=\sum_bN(s,b)$ and $c_{\mathrm{puct}}\gt0$. A larger prior encourages investigation, while visits reduce that action's bonus. Unlike UCT, unvisited actions have finite scores. In our teaching version, initialize their $Q$ to zero and choose a highest-prior action when $N(s)=0$. The network stays fixed during search, while counts and means change.
 
-Signed outcomes also differ from win probabilities. With draws, $P(\mathrm{opponent\ wins})=1-P(\mathrm{win})-P(\mathrm{draw})$. Negating a probability in $[0,1]$ is never the signed-value perspective conversion.
+<span id="from-a-prior-to-a-search-distribution" />
 
-## MuZero: Learn the Dynamics Used by Search
+After at least one root action has been visited, turn the counts into a search policy using a temperature $\tau\gt0$:
 
-MuZero, introduced in 2019 and published in 2020, addresses the dependency AlphaZero retained: an exact transition simulator for hypothetical actions. It keeps the search-and-learning loop but supplies search with learned latent dynamics. This also connects the search lineage to earlier work on learning value-predictive models. It is not the origin of all latent model-based RL. [Schrittwieser et al., MuZero](https://arxiv.org/abs/1911.08265)
+$$
+\pi_{\mathrm{search}}(a\mid s)
+=\frac{N(s,a)^{1/\tau}}
+{\sum_{b\in\mathcal A(s)}N(s,b)^{1/\tau}}.
+$$
 
-Use three functions:
+At $\tau=1$, counts $30$ and $10$ give probabilities $0.75$ and $0.25$. Lower temperatures favor the most-visited move. Self-play samples moves and adds noise to the root prior for exploration. Evaluation chooses maximum visits. The network prior $p_\theta$, search mean $Q$, and visit distribution $\pi_{\mathrm{search}}$ have different roles.
+
+<span id="collecting-self-play-games" />
+<span id="from-search-to-self-play" />
+<span id="train-on-the-search-and-the-outcome" />
+<span id="learning-from-search-and-outcomes" />
+
+### Learning through Self-Play
+
+Start with a randomly initialized network and let MCTS choose moves for both players. At position $s_t$, search produces $\pi_t=\pi_{\mathrm{search}}(\cdot\mid s_t)$. Execute $a_t\sim\pi_t$, observe $s_{t+1}=f(s_t,a_t)$, and search again. These played moves form one game. The branches examined inside each search remain hypothetical. The chosen child's subtree can be retained for the next move.
+
+<figure>
+  <div className="overflow-x-auto">
+    <svg role="img" aria-label="A self-play game advances from state s zero to s one, through later positions to terminal state s T. A small MCTS tree below each nonterminal position produces the policy used to select the next played move. The game ends with outcome Z one for the first player." viewBox="0 0 1040 275" xmlns="http://www.w3.org/2000/svg" style={{display:'block',width:'100%',minWidth:'720px',height:'auto'}}>
+      <defs>
+        <marker id="az-selfplay-move-arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="5" markerHeight="5" orient="auto">
+          <path d="M1 1 L7 4 L1 7" fill="none" stroke="#3b82f6" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+        </marker>
+        <g id="az-selfplay-search-tree" fill="var(--color-fd-background)" stroke="var(--color-fd-muted-foreground)" strokeWidth="1.6" strokeOpacity="0.38">
+          <path d="M0 0 L-50 48 M0 0 L0 48 M0 0 L50 48 M-50 48 L-68 94 M-50 48 L-32 94 M0 48 L-18 94 M0 48 L18 94 M50 48 L32 94 M50 48 L68 94" fill="none" />
+          <circle cx="-50" cy="48" r="4" /><circle cx="0" cy="48" r="4" /><circle cx="50" cy="48" r="4" />
+          <circle cx="-68" cy="94" r="4" /><circle cx="-32" cy="94" r="4" /><circle cx="-18" cy="94" r="4" /><circle cx="18" cy="94" r="4" /><circle cx="32" cy="94" r="4" /><circle cx="68" cy="94" r="4" />
+        </g>
+      </defs>
+      <g fill="var(--color-fd-muted-foreground)" fontFamily="inherit" fontSize="15">
+        <text x="28" y="24">Played game</text>
+      </g>
+      <g fill="none" stroke="#3b82f6" strokeWidth="2.6" markerEnd="url(#az-selfplay-move-arrow)">
+        <path d="M148 83 H312" />
+        <path d="M408 83 H470" markerEnd="none" /><path d="M550 83 H612" />
+        <path d="M708 83 H902" />
+      </g>
+      <g fill="#3b82f6" fontFamily="Georgia, 'Times New Roman', serif" fontSize="21" fontStyle="italic" textAnchor="middle">
+        <text x="230" y="59">a₀ ∼ π₀</text>
+        <text x="805" y="59">a<tspan baselineShift="sub" fontSize="13">T−1</tspan> ∼ π<tspan baselineShift="sub" fontSize="13">T−1</tspan></text>
+      </g>
+      <text x="510" y="90" fill="var(--color-fd-muted-foreground)" fontFamily="inherit" fontSize="28" textAnchor="middle">···</text>
+      <g stroke="var(--color-fd-muted-foreground)" strokeWidth="1.6" strokeOpacity="0.38">
+        <path d="M100 106 V112 M360 106 V112 M660 106 V112" />
+        <use href="#az-selfplay-search-tree" transform="translate(100 112)" />
+        <use href="#az-selfplay-search-tree" transform="translate(360 112)" />
+        <use href="#az-selfplay-search-tree" transform="translate(660 112)" />
+      </g>
+      <g fill="none" stroke="#3b82f6" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M100 112 L50 160 L68 206" />
+        <path d="M360 112 L360 160 L378 206" />
+        <path d="M660 112 L710 160 L692 206" />
+      </g>
+      <g fill="var(--color-fd-background)" stroke="#3b82f6" strokeWidth="1.7">
+        <circle cx="50" cy="160" r="4" /><circle cx="68" cy="206" r="4" />
+        <circle cx="360" cy="160" r="4" /><circle cx="378" cy="206" r="4" />
+        <circle cx="710" cy="160" r="4" /><circle cx="692" cy="206" r="4" />
+      </g>
+      <g fill="#3b82f6" fillOpacity="0.07" stroke="#3b82f6" strokeOpacity="0.45" strokeWidth="1.4">
+        <rect x="56" y="60" width="88" height="46" rx="12" /><rect x="316" y="60" width="88" height="46" rx="12" /><rect x="616" y="60" width="88" height="46" rx="12" />
+      </g>
+      <rect x="906" y="60" width="88" height="46" rx="12" fill="var(--color-fd-background)" stroke="var(--color-fd-border)" strokeWidth="1.4" />
+      <g fill="var(--color-fd-foreground)" fontFamily="Georgia, 'Times New Roman', serif" fontSize="25" fontStyle="italic" textAnchor="middle">
+        <text x="100" y="90">s₀</text><text x="360" y="90">s₁</text><text x="660" y="90">s<tspan baselineShift="sub" fontSize="15">T−1</tspan></text><text x="950" y="90">s<tspan baselineShift="sub" fontSize="15">T</tspan></text>
+      </g>
+      <g fill="var(--color-fd-muted-foreground)" fontFamily="inherit" fontSize="17" textAnchor="middle">
+        <text x="100" y="246">MCTS → π₀</text><text x="360" y="246">MCTS → π₁</text><text x="660" y="246">MCTS → π<tspan baselineShift="sub" fontSize="11">T−1</tspan></text>
+        <text x="950" y="165">Game outcome</text>
+      </g>
+      <text x="950" y="200" fill="#d97706" fontFamily="Georgia, 'Times New Roman', serif" fontSize="28" fontStyle="italic" textAnchor="middle">Z₁</text>
+    </svg>
+  </div>
+</figure>
+
+When the game ends, assign each recorded position its outcome $Z=o(s_t)Z_1$. Store triples $(s_t,\pi_t,Z)$ in replay buffer $\mathcal D$. The policy target is available after search, while the outcome arrives after the game. Minibatches reuse positions from recent games to fit both heads:
+
+$$
+L(\theta)=\mathbb E_{(s,\pi,Z)\sim\mathcal D}\Big[\big(V_\theta(s)-Z\big)^2-\sum_{a\in\mathcal A(s)}\pi(a)\log p_\theta(a\mid s)\Big]+\lambda_{\mathrm{reg}}\|\theta\|_2^2.
+$$
+
+The squared error fits the value prediction to the observed outcome. Cross-entropy teaches the policy the full search distribution, rather than only the played move. The coefficient $\lambda_{\mathrm{reg}}\ge0$ controls weight regularization. Targets stay fixed during each update, and gradients pass through the shared network, without differentiating through MCTS.
+
+<span id="alphago-learn-which-moves-and-positions-matter" />
+<span id="alphago-alphago-zero-and-alphazero" />
+
+Updated predictions guide later searches, whose results supply new training data. This is approximate [policy iteration](/docs/01-value-based/dynamic-programming): search investigates improvements and the network generalizes them. Finite search does not guarantee a better move every time. The same procedure was trained separately for chess, shogi, and Go.
+
+<span id="muzero-learn-the-dynamics-used-by-search" />
+
+## MuZero: Searching with a Learned Model
+
+What if we can interact with the environment but cannot ask it to simulate hypothetical moves? AlphaZero needs the simulator to reach a leaf before evaluating it. In a deterministic task, the current situation and an action sequence determine that leaf. Could a network predict its reward, policy, and value without reconstructing the intervening observations? MuZero learns these predictions directly.
+
+<span id="predict-the-quantities-search-uses" />
+
+### Representation, Dynamics, and Prediction
+
+MuZero encodes the available observation/action history $\mathcal H_t$ at real time $t$, then advances a latent state along candidate actions:
 
 $$
 \begin{aligned}
 z_t^0&=h_\theta(\mathcal H_t),\\
-(\hat r_t^{k+1},z_t^{k+1})
-&=g_\theta(z_t^k,a_{t+k}),\\
-(\hat p_t^k,\hat V_t^k)&=f_\theta(z_t^k).
+(\widehat r_t^{k+1},z_t^{k+1})
+&=g_\theta(z_t^k,a^k),\\
+(\widehat p_t^k,\widehat V_t^k)
+&=f_\theta(z_t^k).
 \end{aligned}
 $$
 
-Here $h$ is a representation function, $g$ is the recurrent dynamics function, and $f$ predicts policy and value. The superscript $k$ counts hypothetical steps from the real time $t$. The reward $\hat r_t^{k+1}$ belongs to the transition after $a_{t+k}$. We use $z$ for latent states and uppercase $Z$ for value targets.
+The **representation** $h_\theta$ encodes the history into an internal vector used as the search root. The **dynamics** $g_\theta$ predicts a reward and successor latent after hypothetical action $a^k$. The **prediction** $f_\theta$ supplies policy and value. Superscript $k$ counts depth from time $t$. Lowercase $z$ is a latent state, distinct from outcome target $Z$. These functions are trained jointly. Their objective requires no observation reconstruction.
 
-At the root, $h$ encodes the available history $\mathcal H_t=(o_0,a_0,\ldots,a_{t-1},o_t)$, using the observation/action window supplied by the implementation. To expand a child, call $g$ with the parent latent and a candidate action. Then call $f$ to obtain the new prior and leaf value. Rewards from $g$ enter the backup. Search does not need a decoded image of the successor to perform any of these operations.
+<span id="expanding-a-latent-search-tree" />
+<span id="restore-rewards-and-discounting-in-backup" />
+<span id="searching-in-latent-states" />
 
-After a real action, the environment supplies the next observation and reward, and the next search is rooted in an encoding of the new real history. Hypothetical predictions help choose the action. Real observations anchor the next decision.
-
-There is still an environment interface and a known action encoding. In the original board-game implementation, legal actions are supplied at the root and used to mask its prior. Internal latent nodes do not query the real rules for legality. Thus the precise change is removal of the dynamics simulator from search, not removal of every piece of environment information. [MuZero, Appendix A](https://arxiv.org/html/1911.08265v2#A1)
-
-### Search Branches. Training Follows Recorded Actions
-
-During search, actions are hypothetical and branch into alternatives. During training, sample a real replay segment, encode its starting history, and unroll $g$ along the **recorded actions**. Predictions at depth $k$ must match targets from real time $t+k$.
-
-| Prediction | Depth zero | After one recorded action | After $k$ recorded actions |
-|---|---|---|---|
-| Reward | No recurrent reward target | Observed $r_{t+1}$ | Observed $r_{t+k}$ |
-| Policy | Search distribution $\pi_t$ | Search distribution $\pi_{t+1}$ | Search distribution $\pi_{t+k}$ |
-| Value | Return target $Z_t$ | Return target $Z_{t+1}$ | Return target $Z_{t+k}$ |
-
-A schematic objective separates those terms:
+To expand a selected edge, call $g_\theta$, then $f_\theta$ at the child. Another action from the same latent creates another branch. In a single-agent task such as Atari, predicted intermediate rewards and discounting enter backup as
 
 $$
-L_t=
-\sum_{k=0}^{K}
-\left[
-\ell_v(\hat V_t^k,Z_{t+k})
-+\ell_p(\hat p_t^k,\pi_{t+k})
-\right]
-+\sum_{k=1}^{K}\ell_r(\hat r_t^k,r_{t+k})
-+L_{\mathrm{reg}}.
+G_{\mathrm{parent}}=\widehat r+\gamma G_{\mathrm{child}}.
 $$
 
-In a continuing single-agent segment with no intervening termination, a value target can use an $n$-step real reward prefix and the search value $\nu$ at its endpoint:
+For example, $\widehat r=1$, $\gamma=0.9$, and $G_{\mathrm{child}}=2$ give $2.8$. Alternating zero-sum games instead require player-relative signs. Counts and means are updated as before. Original MuZero also normalizes search values and adjusts PUCT's exploration coefficient with visits.
+
+<span id="what-happens-after-a-real-action" />
+
+Execute the selected action in the environment, observe its actual reward and next observation, and encode the updated history for the next search. Board games supply legal moves at the root. Internal latent nodes use learned predictions, including terminal behavior, rather than exact legality or termination tests.
+
+<span id="training-muzero-from-real-trajectories" />
+<span id="search-branches-training-follows-recorded-actions" />
+<span id="unrolling-recorded-actions" />
+
+### Learning from Real Trajectories
+
+Store trajectories containing observations $o_t$, executed actions $a_t$, actual rewards $r_{t+1}$, and search policies $\pi_t$. Sample a starting history and $K$ subsequent transitions. Encode that history once, then apply the same recurrence with $a^k=a_{t+k}$ for $k=0,\ldots,K-1$. **Search branches over alternatives. Training follows the recorded actions.** No new observation is supplied inside this unroll.
+
+<span id="constructing-a-value-target" />
+
+For a simple single-agent value target, use the full episode return:
 
 $$
-Z_t=\sum_{j=0}^{n-1}\gamma^j r_{t+j+1}
-+\gamma^n\nu_{t+n}.
+Z_j=\sum_{i=j}^{T-1}\gamma^{i-j}r_{i+1},
 $$
 
-At a true terminal state, stop the reward sum and omit the continuation term. Board games instead use final outcomes with the appropriate player perspective. Original MuZero omits the reward-loss term for board games without intermediate rewards. The loss notation permits scalar or categorical reward/value targets. The original Atari implementation uses transformed categorical representations. [MuZero, algorithm and training](https://arxiv.org/html/1911.08265v2#S3)
+where $T$ is termination time. Board games use player-relative outcomes instead. Original MuZero bootstraps $n$-step targets in Atari, as in [multi-step TD](/docs/01-value-based/monte-carlo-and-temporal-difference).
 
-The key gradient path passes through the unrolled dynamics. If a predicted successor produces a wrong later value or policy, that error can update $g$ and the root representation $h$, as well as the prediction head $f$. The search targets are training labels. Learning the dynamics does not require differentiating through the discrete MCTS selection decisions.
+<span id="fitting-reward-value-and-policy-together" />
 
-## What This Model Learns—and What Search Cannot Repair
+At depth $k$, align the predictions with real time $t+k$:
 
-MuZero's original objective has no observation-reconstruction term. Its latent state must support the reward, value, and policy predictions used by the task. A visually accurate image predictor and a useful search model therefore solve different supervised problems.
-
-This motivates **value equivalence**, but does not establish it automatically. In the formal principle, two models are equivalent relative to specified classes of policies and value functions if they produce the same Bellman updates on those classes. A finite MuZero training loss is not a proof of that equality for every state, action, or future policy. A latent model also needs a correspondence between physical and latent domains before such an operator comparison is literal. [Grimm et al., *The Value Equivalence Principle*](https://arxiv.org/abs/2011.03506)
-
-Consider a task where a background object never affects reward. A compressed model may discard it successfully. If a new task rewards interacting with that object, the same representation may no longer suffice. Task-focused supervision changes which errors are penalized. It does not make all omitted information irrelevant forever.
-
-Search also inherits the model's mistakes. If an unsupported branch predicts a large reward, more simulations may reinforce that branch and produce a confident but wrong policy target. The useful evaluation is therefore not just model loss: compare the policy before search with searched behavior, vary the search budget, and check whether reward and value errors concentrate on the actions search selects.
-
-Several later directions isolate remaining limitations:
-
-| Limitation | Example response |
+| Prediction | Target |
 |---|---|
-| Too many actions to enumerate | [Sampled MuZero](https://proceedings.mlr.press/v139/hubert21a.html) plans over sampled action subsets and accounts for sampling in policy improvement |
-| Weak learning signals with little experience | [EfficientZero](https://arxiv.org/abs/2111.00210) adds latent consistency, reward-prefix prediction, and corrections to stale value targets |
-| Search targets age as the network changes | [MuZero Unplugged](https://arxiv.org/abs/2104.06294) studies reanalyse: search stored experience again to refresh training targets |
+| $\widehat p_t^k$ | Recorded search policy $\pi_{t+k}$ |
+| $\widehat V_t^k$ | Return or outcome $Z_{t+k}$ |
+| $\widehat r_t^k$, $k\ge1$ | Observed reward $r_{t+k}$ |
 
-These address different bottlenecks rather than forming a single replacement chain. Original MuZero's deterministic latent transition also does not explicitly branch over chance outcomes. Handling stochastic futures requires care even when a deterministic model can learn useful expected predictions. Reanalyse similarly adds computation, not new environmental evidence: offline coverage remains a limitation.
+For a segment with $t+K\lt T$, every policy target exists. Combine policy, value, and reward losses across the sequence:
 
-## Reading the Three Loops Separately
+$$
+L_t(\theta)=\sum_{k=0}^{K}\ell_p(\widehat p_t^k,\pi_{t+k})+\sum_{k=0}^{K}\ell_v(\widehat V_t^k,Z_{t+k})+\sum_{k=1}^{K}\ell_r(\widehat r_t^k,r_{t+k})+\lambda_{\mathrm{reg}}\|\theta\|_2^2.
+$$
 
-For any algorithm in this family, trace three loops. **Search** builds temporary statistics to choose the current action. **Behavior learning** fits reusable policy/value predictions from search and experience. **Model learning**, present in MuZero but absent from AlphaZero, changes the dynamics on which later searches depend.
+<span id="how-the-dynamics-learns-without-an-image-target" />
 
-The [Practical RL MCTS exercise](https://github.com/yandexdataschool/Practical_RL/blob/6f7fa8bc521af3d6bb47833c4670f44740f26aa6/week10_planning/seminar_MCTS.ipynb) is a useful starting point for implementing the search loop. In [Mctx](https://github.com/google-deepmind/mctx/tree/286c37a82204de2f92e81b2395906fc16bff98d9), follow the recurrent-model interface from reward, discount, policy logits, value, and next embedding into expansion and backup. Mctx supplies search algorithms. Replay, target construction, and model training still belong to the agent around it.
+Here $\ell_p$ is cross-entropy. Squared errors for $\ell_v,\ell_r$ give a scalar teaching version. Original Atari MuZero uses transformed categorical targets, and board games without intermediate rewards omit reward loss.
 
-Before moving on, explain why the reward loss begins at depth one while policy/value losses begin at depth zero. Then trace the two-ply backup above and identify where replacing known rules with learned dynamics introduces error.
+Policy/value supervision starts at depth zero, reward supervision after the first action. At episode boundaries, mask unavailable policy targets and set terminal continuation targets to zero, or use explicit absorbing-state targets. Errors propagate through $f_\theta$, recurrent $g_\theta$, and root encoder $h_\theta$, with search policies held fixed.
 
-The [next chapter, Dyna and Learning Policies with Models](/docs/04-model-based/dyna-and-learned-models), studies another use of model computation: updating reusable values and policies between real interactions. Dyna-Q makes this connection explicit with a shared backup for real and modeled transitions. MBPO later develops the idea with learned dynamics and actor-critic training.
+<span id="reading-the-three-loops-separately" />
+<span id="what-search-gives-usand-what-it-costs" />
+
+## Comparing MCTS, AlphaZero, and MuZero
+
+| Component | Rollout-based MCTS | AlphaZero | MuZero |
+|---|---|---|---|
+| Successors | Supplied simulator | Known game rules | Learned latent dynamics |
+| Unfinished leaf | Rollout return | Value head | Value head |
+| Selection | UCT | Policy-guided PUCT | Policy-guided PUCT |
+| Persistent learning | None required | Policy and value | Representation, dynamics, reward, policy, value |
+| Training data | None required | Self-play search and outcomes | Executed trajectories and search targets |
+| Work during search | Simulator calls and rollouts | Rules and network evaluations | Learned dynamics and prediction calls |
+| Main prediction risk | Weak rollout continuation | Inaccurate leaf values | Reward, latent-dynamics, and value errors |
+
+<span id="read-results-with-their-budgets" />
+<span id="what-this-model-learnsand-what-search-cannot-repair" />
+<span id="model-error-and-the-search-budget" />
+
+AlphaZero and MuZero both use MCTS, but change how it evaluates and explores the tree. In the rollout-based version, a weak continuation policy can make a promising state look bad. AlphaZero keeps exact game rules and uses a learned policy to guide exploration and a value head to evaluate unfinished positions, so inaccurate predictions can still mislead the search. MuZero also predicts rewards and successor latent states: it can search without a supplied transition simulator, but model errors can accumulate along imagined branches. Tree statistics summarize the current search, while trained networks reuse information across positions. More simulations can refine estimates within the model, but cost time and memory and provide no new evidence about whether the model is correct.
+
+<span id="where-to-go-next" />
+
+## What Comes Next
+
+The [next chapter, Dyna](/docs/04-model-based/dyna-and-learned-models), uses modeled transitions to update reusable values and policies, rather than organizing a tree for the current action.

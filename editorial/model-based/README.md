@@ -8,14 +8,14 @@ the published site. The MDX collections only read `content/docs/`.
 ## Reading order and source choices
 
 The first chapter uses PaoShou-China's introduction with the billiards experiment.
-Tree Search is chapter 2 and the next chapter to rewrite with the author. The
-remaining technical chapters keep the detailed mathematical style. Offline MBRL
-remains a separate final chapter.
+Tree Search is chapter 2 and now has a lecture-based rewrite awaiting the author's
+review. The remaining technical chapters keep the detailed mathematical style.
+Offline MBRL remains a separate final chapter.
 
 | Order | Primary chapter | Detailed original | PaoShou-China original | Current choice and review status |
 |---|---|---|---|---|
 | 1 | [Model-Based Framework](../../content/docs/04-model-based/model-based-rl-framework/index.mdx) | [Original](variants/detailed/model-based-rl-framework/index.mdx) | [Original](variants/paoshou-china/model-based-rl-framework/index.mdx) | PaoShou-China, with reading-order and offline-coverage links adjusted. Billiards retained. |
-| 2 | [Tree Search: From MCTS to MuZero](../../content/docs/04-model-based/alphazero-and-muzero/index.mdx) | [Original](variants/detailed/alphazero-and-muzero/index.mdx) | [Original](variants/paoshou-china/alphazero-and-muzero/index.mdx) | Detailed draft retained as a starting point. Rewrite not started. Begin with the [review plan](tree-search-review.md). |
+| 2 | [Tree Search: From MCTS to MuZero](../../content/docs/04-model-based/alphazero-and-muzero/index.mdx) | [Original](variants/detailed/alphazero-and-muzero/index.mdx) | [Original](variants/paoshou-china/alphazero-and-muzero/index.mdx) | Concise lecture-based remainder revised on 2026-10-27. About 4,100 words for the whole chapter. The agreed opening through opponent search is preserved verbatim. AlphaZero, MuZero, and comparison have three independent editorial/scientific reviews and one consolidated comparison table. Learning curves were removed at the author's request. Author review remains pending. See [decisions and checks](tree-search-review.md). |
 | 3 | [Dyna and Learning Policies with Models](../../content/docs/04-model-based/dyna-and-learned-models/index.mdx) | [Original](variants/detailed/dyna-and-learned-models/index.mdx) | [Original](variants/paoshou-china/dyna-and-learned-models/index.mdx) | Detailed draft and runnable Dyna-Q example. Awaiting chapter review. |
 | 4 | [Planning and Model Predictive Control](../../content/docs/04-model-based/model-predictive-control/index.mdx) | [Original](variants/detailed/model-predictive-control/index.mdx) | [Original](variants/paoshou-china/model-predictive-control/index.mdx) | Detailed draft. Awaiting chapter review. |
 | 5 | [Latent Model-Based RL](../../content/docs/04-model-based/latent-model-based-rl/index.mdx) | [Original](variants/detailed/latent-model-based-rl/index.mdx) | [Original](variants/paoshou-china/latent-model-based-rl/index.mdx) | Detailed PlaNet, Dreamer, TD-MPC, and JEPA coverage. Awaiting chapter review. |
